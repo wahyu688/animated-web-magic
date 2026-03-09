@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Plus, MoreHorizontal, MessageSquare, Paperclip, Clock } from "lucide-react";
-import TaskSlideover from "@/components/modals/TaskSlideover";
+import TaskSlideover from "@/components/modals/TaskSlideover"; // Sesuaikan path jika berbeda
+import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 
 interface Task {
   id: string;
@@ -21,7 +22,8 @@ interface Column {
   tasks: Task[];
 }
 
-const columns: Column[] = [
+// Data awal dipindahkan ke dalam variabel initialColumns
+const initialColumns: Column[] = [
   {
     id: "backlog",
     title: "Backlog",
@@ -70,7 +72,65 @@ const columns: Column[] = [
 ];
 
 export default function KanbanPage() {
+  const [columnsData, setColumnsData] = useState<Column[]>(initialColumns);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+
+  // --- HANDLER DRAG & DROP ---
+  const onDragEnd = (result: DropResult) => {
+    const { source, destination } = result;
+
+    // Jika task di-drop di luar area droppable
+    if (!destination) return;
+
+    // Jika task di-drop di posisi yang sama persis
+    if (source.droppableId === destination.droppableId && source.index === destination.index) {
+      return;
+    }
+
+    // Cari index kolom asal dan tujuan
+    const sourceColIndex = columnsData.findIndex((col) => col.id === source.droppableId);
+    const destColIndex = columnsData.findIndex((col) => col.id === destination.droppableId);
+
+    const sourceCol = columnsData[sourceColIndex];
+    const destCol = columnsData[destColIndex];
+
+    const sourceTasks = [...sourceCol.tasks];
+    const destTasks = sourceCol === destCol ? sourceTasks : [...destCol.tasks];
+
+    // Hapus task dari kolom asal
+    const [removedTask] = sourceTasks.splice(source.index, 1);
+    
+    // Masukkan task ke kolom tujuan
+    destTasks.splice(destination.index, 0, removedTask);
+
+    // Update state
+    const newColumnsData = [...columnsData];
+    newColumnsData[sourceColIndex] = { ...sourceCol, tasks: sourceTasks };
+    if (sourceCol !== destCol) {
+      newColumnsData[destColIndex] = { ...destCol, tasks: destTasks };
+    }
+
+    setColumnsData(newColumnsData);
+  };
+
+  // --- HANDLER ADD TASK ---
+  const handleAddTask = (columnId: string) => {
+    const newTask: Task = {
+      id: `task-${Date.now()}`, // ID Unik
+      title: "New Task",
+      tag: "Draft",
+      tagColor: "bg-secondary text-secondary-foreground",
+    };
+
+    setColumnsData((prev) =>
+      prev.map((col) => {
+        if (col.id === columnId) {
+          return { ...col, tasks: [...col.tasks, newTask] };
+        }
+        return col;
+      })
+    );
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -81,6 +141,7 @@ export default function KanbanPage() {
           <p className="text-muted-foreground mt-1">Track and manage your project tasks visually.</p>
         </div>
         <motion.button
+          onClick={() => handleAddTask("todo")} // Default tambah ke To Do
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium shadow-primary-glow"
@@ -89,85 +150,111 @@ export default function KanbanPage() {
         </motion.button>
       </div>
 
-      {/* Board */}
+      {/* Board dengan DragDropContext */}
       <div className="flex-1 overflow-x-auto p-6">
-        <div className="flex gap-6 h-full min-w-max">
-          {columns.map((col, colIdx) => (
-            <motion.div
-              key={col.id}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: colIdx * 0.08 }}
-              className="w-80 flex flex-col shrink-0"
-            >
-              {/* Column Header */}
-              <div className="flex items-center justify-between mb-4 px-1">
-                <div className="flex items-center gap-2">
-                  <span className={`h-2.5 w-2.5 rounded-full ${col.color}`} />
-                  <h3 className="text-sm font-bold text-foreground">{col.title}</h3>
-                  <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
-                    {col.tasks.length}
-                  </span>
+        <DragDropContext onDragEnd={onDragEnd}>
+          <div className="flex gap-6 h-full min-w-max">
+            {columnsData.map((col, colIdx) => (
+              <motion.div
+                key={col.id}
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: colIdx * 0.08 }}
+                className="w-80 flex flex-col shrink-0"
+              >
+                {/* Column Header */}
+                <div className="flex items-center justify-between mb-4 px-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`h-2.5 w-2.5 rounded-full ${col.color}`} />
+                    <h3 className="text-sm font-bold text-foreground">{col.title}</h3>
+                    <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
+                      {col.tasks.length}
+                    </span>
+                  </div>
+                  <button className="text-muted-foreground hover:text-foreground transition-colors">
+                    <MoreHorizontal className="h-4 w-4" />
+                  </button>
                 </div>
-                <button className="text-muted-foreground hover:text-foreground transition-colors">
-                  <MoreHorizontal className="h-4 w-4" />
-                </button>
-              </div>
 
-              {/* Tasks */}
-              <div className="flex-1 space-y-3 overflow-y-auto pb-4">
-                {col.tasks.map((task, taskIdx) => (
-                  <motion.div
-                    key={task.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: colIdx * 0.08 + taskIdx * 0.05 }}
-                    onClick={() => setSelectedTask(task)}
-                    className="task-card bg-card rounded-xl border border-border p-4 cursor-pointer shadow-card"
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide ${task.tagColor}`}>
-                        {task.tag}
-                      </span>
-                      {task.priority === "high" && (
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-destructive/10 text-destructive uppercase">
-                          High
-                        </span>
-                      )}
+                {/* Tasks List (Droppable) */}
+                <Droppable droppableId={col.id}>
+                  {(provided, snapshot) => (
+                    <div
+                      {...provided.droppableProps}
+                      ref={provided.innerRef}
+                      className={`flex-1 space-y-3 overflow-y-auto pb-4 transition-colors rounded-xl ${
+                        snapshot.isDraggingOver ? "bg-muted/50" : ""
+                      }`}
+                    >
+                      {col.tasks.map((task, taskIdx) => (
+                        <Draggable key={task.id} draggableId={task.id} index={taskIdx}>
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                              style={{ ...provided.draggableProps.style }}
+                            >
+                              <div
+                                onClick={() => setSelectedTask(task)}
+                                className={`task-card bg-card rounded-xl border border-border p-4 cursor-pointer transition-shadow ${
+                                  snapshot.isDragging ? "shadow-2xl ring-2 ring-primary/50 rotate-2 scale-105" : "shadow-card hover:shadow-card-hover"
+                                }`}
+                              >
+                                <div className="flex items-start justify-between mb-2">
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide ${task.tagColor}`}>
+                                    {task.tag}
+                                  </span>
+                                  {task.priority === "high" && (
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-destructive/10 text-destructive uppercase">
+                                      High
+                                    </span>
+                                  )}
+                                </div>
+                                <h4 className="text-sm font-medium text-foreground mb-3 leading-snug">{task.title}</h4>
+                                <div className="flex items-center justify-between pt-2 border-t border-border/50">
+                                  <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-[10px] font-bold">
+                                    A
+                                  </div>
+                                  <div className="flex items-center gap-3 text-muted-foreground text-xs">
+                                    {task.comments && (
+                                      <span className="flex items-center gap-1">
+                                        <MessageSquare className="h-3 w-3" /> {task.comments}
+                                      </span>
+                                    )}
+                                    {task.attachments && (
+                                      <span className="flex items-center gap-1">
+                                        <Paperclip className="h-3 w-3" /> {task.attachments}
+                                      </span>
+                                    )}
+                                    {task.dueDate && (
+                                      <span className="flex items-center gap-1">
+                                        <Clock className="h-3 w-3" /> {task.dueDate}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </Draggable>
+                      ))}
+                      {provided.placeholder}
+                      
+                      {/* Tombol Add Task dipindah ke dalam Droppable agar posisinya pas */}
+                      <button 
+                        onClick={() => handleAddTask(col.id)}
+                        className="w-full py-2.5 rounded-xl border-2 border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-all flex items-center justify-center gap-2 text-sm font-medium mt-3"
+                      >
+                        <Plus className="h-4 w-4" /> Add Task
+                      </button>
                     </div>
-                    <h4 className="text-sm font-medium text-foreground mb-3 leading-snug">{task.title}</h4>
-                    <div className="flex items-center justify-between pt-2 border-t border-border/50">
-                      <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-[10px] font-bold">
-                        A
-                      </div>
-                      <div className="flex items-center gap-3 text-muted-foreground text-xs">
-                        {task.comments && (
-                          <span className="flex items-center gap-1">
-                            <MessageSquare className="h-3 w-3" /> {task.comments}
-                          </span>
-                        )}
-                        {task.attachments && (
-                          <span className="flex items-center gap-1">
-                            <Paperclip className="h-3 w-3" /> {task.attachments}
-                          </span>
-                        )}
-                        {task.dueDate && (
-                          <span className="flex items-center gap-1">
-                            <Clock className="h-3 w-3" /> {task.dueDate}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-
-                <button className="w-full py-2.5 rounded-xl border-2 border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-all flex items-center justify-center gap-2 text-sm font-medium">
-                  <Plus className="h-4 w-4" /> Add Task
-                </button>
-              </div>
-            </motion.div>
-          ))}
-        </div>
+                  )}
+                </Droppable>
+              </motion.div>
+            ))}
+          </div>
+        </DragDropContext>
       </div>
 
       {/* Task Slideover */}

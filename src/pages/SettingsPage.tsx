@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { User, Lock, Bell, CreditCard, Puzzle, Camera, Shield, Smartphone, Key, Mail, Monitor, Globe, Slack, Github, Webhook, ChevronRight } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 const tabs = [
   { icon: User, label: "General" },
@@ -10,8 +11,56 @@ const tabs = [
   { icon: Puzzle, label: "Integrations" },
 ];
 
+/* ── Shared Footer ── */
+function SettingsFooter({ onSave }: { onSave: () => void }) {
+  return (
+    <div className="flex items-center justify-end gap-3 pt-6 border-t border-border">
+      <button className="px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted rounded-xl transition-colors">Cancel</button>
+      <motion.button 
+        onClick={onSave}
+        whileHover={{ scale: 1.02 }} 
+        whileTap={{ scale: 0.98 }} 
+        className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-xl shadow-primary-glow hover:opacity-90 transition-opacity"
+      >
+        Save Changes
+      </motion.button>
+    </div>
+  );
+}
+
 /* ── General Tab ── */
 function GeneralTab() {
+  const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      toast({
+        title: "Photo updated",
+        description: `Successfully uploaded ${e.target.files[0].name}`,
+      });
+    }
+  };
+
+  const handleRemovePhoto = () => {
+    toast({
+      title: "Photo removed",
+      description: "Your profile photo has been reset to default.",
+      variant: "destructive"
+    });
+  };
+
+  const handleSave = () => {
+    toast({
+      title: "Profile updated",
+      description: "Your general profile settings have been saved successfully.",
+    });
+  };
+
   return (
     <>
       <div className="px-6 py-6 border-b border-border">
@@ -20,8 +69,8 @@ function GeneralTab() {
       </div>
       <div className="p-6 space-y-8">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
-          <div className="relative group cursor-pointer">
-            <div className="w-20 h-20 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-2xl ring-4 ring-muted">A</div>
+          <div className="relative group cursor-pointer" onClick={handleUploadClick}>
+            <div className="w-20 h-20 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-2xl ring-4 ring-muted transition-transform group-hover:scale-105">A</div>
             <div className="absolute inset-0 flex items-center justify-center bg-foreground/40 rounded-full opacity-0 group-hover:opacity-100 transition-all">
               <Camera className="h-5 w-5 text-primary-foreground" />
             </div>
@@ -30,8 +79,9 @@ function GeneralTab() {
             <h3 className="text-sm font-medium text-foreground">Profile Photo</h3>
             <p className="text-xs text-muted-foreground mt-1 mb-3">Accepts JPG, GIF or PNG. 1MB Max.</p>
             <div className="flex gap-3">
-              <button className="px-3 py-1.5 text-xs font-medium bg-card border border-border rounded-lg shadow-sm hover:bg-muted text-foreground transition-colors">Upload New</button>
-              <button className="px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 rounded-lg transition-colors">Remove</button>
+              <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
+              <button onClick={handleUploadClick} className="px-3 py-1.5 text-xs font-medium bg-card border border-border rounded-lg shadow-sm hover:bg-muted text-foreground transition-colors">Upload New</button>
+              <button onClick={handleRemovePhoto} className="px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 rounded-lg transition-colors">Remove</button>
             </div>
           </div>
         </div>
@@ -48,7 +98,7 @@ function GeneralTab() {
             </div>
           ))}
           <div className="space-y-1.5 md:col-span-2">
-            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">Bio <span className="float-right text-[10px] normal-case font-normal">275 characters left</span></label>
+            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">Bio</label>
             <textarea rows={4} placeholder="Tell us a little about yourself..." className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary focus:ring-primary/20 text-sm py-2.5 px-3 transition-colors resize-none" />
           </div>
           <div className="space-y-1.5 md:col-span-2">
@@ -57,10 +107,11 @@ function GeneralTab() {
               <option>Pacific Standard Time (PST)</option>
               <option>Eastern Standard Time (EST)</option>
               <option>Greenwich Mean Time (GMT)</option>
+              <option>Western Indonesia Time (WIB)</option>
             </select>
           </div>
         </div>
-        <SettingsFooter />
+        <SettingsFooter onSave={handleSave} />
       </div>
     </>
   );
@@ -68,13 +119,42 @@ function GeneralTab() {
 
 /* ── Security Tab ── */
 function SecurityTab() {
+  const { toast } = useToast();
   const [twoFAEnabled, setTwoFAEnabled] = useState(true);
+  
+  const [sessions, setSessions] = useState([
+    { id: 1, device: "MacBook Pro — Chrome", location: "San Francisco, US", time: "Current session", icon: Monitor, active: true },
+    { id: 2, device: "iPhone 15 — Safari", location: "San Francisco, US", time: "2 hours ago", icon: Smartphone, active: false },
+    { id: 3, device: "Windows PC — Firefox", location: "New York, US", time: "3 days ago", icon: Monitor, active: false },
+  ]);
 
-  const sessions = [
-    { device: "MacBook Pro — Chrome", location: "San Francisco, US", time: "Current session", icon: Monitor, active: true },
-    { device: "iPhone 15 — Safari", location: "San Francisco, US", time: "2 hours ago", icon: Smartphone, active: false },
-    { device: "Windows PC — Firefox", location: "New York, US", time: "3 days ago", icon: Monitor, active: false },
-  ];
+  const [passwords, setPasswords] = useState({ current: "", new: "", confirm: "" });
+
+  const handleUpdatePassword = () => {
+    if (!passwords.current || !passwords.new || !passwords.confirm) {
+      toast({ title: "Error", description: "Please fill in all password fields.", variant: "destructive" });
+      return;
+    }
+    if (passwords.new !== passwords.confirm) {
+      toast({ title: "Error", description: "New passwords do not match.", variant: "destructive" });
+      return;
+    }
+    toast({ title: "Password updated", description: "Your password has been changed successfully." });
+    setPasswords({ current: "", new: "", confirm: "" });
+  };
+
+  const handleRevokeSession = (id: number) => {
+    setSessions(prev => prev.filter(s => s.id !== id));
+    toast({ title: "Session revoked", description: "The selected device has been logged out." });
+  };
+
+  const handleToggle2FA = () => {
+    setTwoFAEnabled(!twoFAEnabled);
+    toast({ 
+      title: !twoFAEnabled ? "2FA Enabled" : "2FA Disabled", 
+      description: !twoFAEnabled ? "Two-factor authentication is now active." : "Two-factor authentication has been turned off." 
+    });
+  };
 
   return (
     <>
@@ -89,19 +169,19 @@ function SecurityTab() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-1.5 md:col-span-2">
               <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">Current Password</label>
-              <input type="password" placeholder="••••••••" className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary focus:ring-primary/20 text-sm py-2.5 px-3 transition-colors" />
+              <input type="password" value={passwords.current} onChange={(e) => setPasswords({...passwords, current: e.target.value})} placeholder="••••••••" className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary focus:ring-primary/20 text-sm py-2.5 px-3 transition-colors" />
             </div>
             <div className="space-y-1.5">
               <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">New Password</label>
-              <input type="password" placeholder="••••••••" className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary focus:ring-primary/20 text-sm py-2.5 px-3 transition-colors" />
+              <input type="password" value={passwords.new} onChange={(e) => setPasswords({...passwords, new: e.target.value})} placeholder="••••••••" className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary focus:ring-primary/20 text-sm py-2.5 px-3 transition-colors" />
             </div>
             <div className="space-y-1.5">
               <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">Confirm Password</label>
-              <input type="password" placeholder="••••••••" className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary focus:ring-primary/20 text-sm py-2.5 px-3 transition-colors" />
+              <input type="password" value={passwords.confirm} onChange={(e) => setPasswords({...passwords, confirm: e.target.value})} placeholder="••••••••" className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary focus:ring-primary/20 text-sm py-2.5 px-3 transition-colors" />
             </div>
           </div>
           <div className="mt-4">
-            <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-xl shadow-primary-glow hover:opacity-90 transition-opacity">
+            <motion.button onClick={handleUpdatePassword} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-xl shadow-primary-glow hover:opacity-90 transition-opacity">
               Update Password
             </motion.button>
           </div>
@@ -122,7 +202,7 @@ function SecurityTab() {
                 <p className="text-xs text-muted-foreground">{twoFAEnabled ? "Enabled — Last verified 3 days ago" : "Not configured"}</p>
               </div>
             </div>
-            <button onClick={() => setTwoFAEnabled(!twoFAEnabled)} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${twoFAEnabled ? "bg-primary" : "bg-border"}`}>
+            <button onClick={handleToggle2FA} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${twoFAEnabled ? "bg-primary" : "bg-border"}`}>
               <span className={`inline-block h-4 w-4 transform rounded-full bg-primary-foreground transition-transform ${twoFAEnabled ? "translate-x-6" : "translate-x-1"}`} />
             </button>
           </div>
@@ -134,24 +214,26 @@ function SecurityTab() {
         <div>
           <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><Monitor className="h-4 w-4 text-primary" /> Active Sessions</h3>
           <div className="space-y-3">
-            {sessions.map((s) => (
-              <div key={s.device} className="flex items-center justify-between p-4 rounded-xl border border-border hover:bg-muted/50 transition-colors">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center text-muted-foreground">
-                    <s.icon className="h-5 w-5" />
+            <AnimatePresence>
+              {sessions.map((s) => (
+                <motion.div layout key={s.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, scale: 0.95 }} className="flex items-center justify-between p-4 rounded-xl border border-border hover:bg-muted/50 transition-colors">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-xl bg-muted flex items-center justify-center text-muted-foreground">
+                      <s.icon className="h-5 w-5" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">{s.device}</p>
+                      <p className="text-xs text-muted-foreground">{s.location} · {s.time}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">{s.device}</p>
-                    <p className="text-xs text-muted-foreground">{s.location} · {s.time}</p>
-                  </div>
-                </div>
-                {s.active ? (
-                  <span className="text-xs font-medium text-success bg-success/10 px-2.5 py-1 rounded-full">Current</span>
-                ) : (
-                  <button className="text-xs font-medium text-destructive hover:bg-destructive/10 px-3 py-1.5 rounded-lg transition-colors">Revoke</button>
-                )}
-              </div>
-            ))}
+                  {s.active ? (
+                    <span className="text-xs font-medium text-success bg-success/10 px-2.5 py-1 rounded-full">Current</span>
+                  ) : (
+                    <button onClick={() => handleRevokeSession(s.id)} className="text-xs font-medium text-destructive hover:bg-destructive/10 px-3 py-1.5 rounded-lg transition-colors">Revoke</button>
+                  )}
+                </motion.div>
+              ))}
+            </AnimatePresence>
           </div>
         </div>
       </div>
@@ -161,6 +243,7 @@ function SecurityTab() {
 
 /* ── Notifications Tab ── */
 function NotificationsTab() {
+  const { toast } = useToast();
   const [prefs, setPrefs] = useState({
     email_mentions: true,
     email_updates: false,
@@ -177,6 +260,10 @@ function NotificationsTab() {
       <span className={`inline-block h-4 w-4 transform rounded-full bg-primary-foreground transition-transform ${on ? "translate-x-6" : "translate-x-1"}`} />
     </button>
   );
+
+  const handleSave = () => {
+    toast({ title: "Preferences saved", description: "Your notification settings have been updated." });
+  };
 
   return (
     <>
@@ -222,7 +309,7 @@ function NotificationsTab() {
             ))}
           </div>
         </div>
-        <SettingsFooter />
+        <SettingsFooter onSave={handleSave} />
       </div>
     </>
   );
@@ -230,6 +317,12 @@ function NotificationsTab() {
 
 /* ── Billing Tab ── */
 function BillingTab() {
+  const { toast } = useToast();
+
+  const handleAction = (action: string) => {
+    toast({ title: "Action Triggered", description: `You clicked "${action}". Redirecting to payment portal...` });
+  };
+
   return (
     <>
       <div className="px-6 py-6 border-b border-border">
@@ -248,8 +341,8 @@ function BillingTab() {
               <p className="text-sm text-muted-foreground">$99/month · Next billing date: Nov 24, 2024</p>
             </div>
             <div className="flex gap-2">
-              <button className="px-4 py-2 text-sm font-medium border border-border rounded-xl hover:bg-muted text-foreground transition-colors">Change Plan</button>
-              <button className="px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 rounded-xl transition-colors">Cancel</button>
+              <button onClick={() => handleAction("Change Plan")} className="px-4 py-2 text-sm font-medium border border-border rounded-xl hover:bg-muted text-foreground transition-colors">Change Plan</button>
+              <button onClick={() => handleAction("Cancel Plan")} className="px-4 py-2 text-sm font-medium text-destructive hover:bg-destructive/10 rounded-xl transition-colors">Cancel</button>
             </div>
           </div>
           <div className="mt-4 grid grid-cols-3 gap-4">
@@ -282,7 +375,7 @@ function BillingTab() {
                 <p className="text-xs text-muted-foreground">Expires 12/2026</p>
               </div>
             </div>
-            <button className="text-sm font-medium text-primary hover:underline">Update</button>
+            <button onClick={() => handleAction("Update Payment Method")} className="text-sm font-medium text-primary hover:underline">Update</button>
           </div>
         </div>
 
@@ -304,7 +397,7 @@ function BillingTab() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-medium text-success bg-success/10 px-2 py-0.5 rounded-full">{inv.status}</span>
-                  <button className="text-xs text-primary hover:underline font-medium">Download</button>
+                  <button onClick={() => handleAction(`Download Invoice ${inv.date}`)} className="text-xs text-primary hover:underline font-medium">Download</button>
                 </div>
               </div>
             ))}
@@ -317,6 +410,7 @@ function BillingTab() {
 
 /* ── Integrations Tab ── */
 function IntegrationsTab() {
+  const { toast } = useToast();
   const [integrations, setIntegrations] = useState([
     { name: "Slack", desc: "Get notified about project updates in your Slack channels", icon: Slack, connected: true },
     { name: "GitHub", desc: "Link repositories and track commits directly from the dashboard", icon: Github, connected: true },
@@ -324,10 +418,14 @@ function IntegrationsTab() {
     { name: "Google Calendar", desc: "Sync events and deadlines with your Google Calendar", icon: Globe, connected: false },
   ]);
 
-  const toggleConnect = (name: string) => {
+  const toggleConnect = (name: string, isCurrentlyConnected: boolean) => {
     setIntegrations((prev) =>
       prev.map((i) => (i.name === name ? { ...i, connected: !i.connected } : i))
     );
+    toast({ 
+      title: isCurrentlyConnected ? "Disconnected" : "Connected", 
+      description: `${name} has been successfully ${isCurrentlyConnected ? "disconnected from" : "connected to"} your account.` 
+    });
   };
 
   return (
@@ -357,7 +455,7 @@ function IntegrationsTab() {
                 <span className="text-xs font-medium text-success bg-success/10 px-2.5 py-1 rounded-full">Connected</span>
               )}
               <button
-                onClick={() => toggleConnect(int.name)}
+                onClick={() => toggleConnect(int.name, int.connected)}
                 className={`px-4 py-2 text-sm font-medium rounded-xl transition-all ${
                   int.connected
                     ? "border border-border text-muted-foreground hover:text-destructive hover:border-destructive/50"
@@ -374,18 +472,6 @@ function IntegrationsTab() {
         ))}
       </div>
     </>
-  );
-}
-
-/* ── Shared Footer ── */
-function SettingsFooter() {
-  return (
-    <div className="flex items-center justify-end gap-3 pt-6 border-t border-border">
-      <button className="px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted rounded-xl transition-colors">Cancel</button>
-      <motion.button whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-xl shadow-primary-glow hover:opacity-90 transition-opacity">
-        Save Changes
-      </motion.button>
-    </div>
   );
 }
 
