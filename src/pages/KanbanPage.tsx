@@ -1,5 +1,7 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { Plus, MoreHorizontal, MessageSquare, Paperclip, Clock } from "lucide-react";
+import TaskSlideover from "@/components/modals/TaskSlideover";
 
 interface Task {
   id: string;
@@ -68,6 +70,8 @@ const columns: Column[] = [
 ];
 
 export default function KanbanPage() {
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
@@ -118,6 +122,7 @@ export default function KanbanPage() {
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: colIdx * 0.08 + taskIdx * 0.05 }}
+                    onClick={() => setSelectedTask(task)}
                     className="task-card bg-card rounded-xl border border-border p-4 cursor-pointer shadow-card"
                   >
                     <div className="flex items-start justify-between mb-2">
@@ -156,7 +161,6 @@ export default function KanbanPage() {
                   </motion.div>
                 ))}
 
-                {/* Add task button */}
                 <button className="w-full py-2.5 rounded-xl border-2 border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-all flex items-center justify-center gap-2 text-sm font-medium">
                   <Plus className="h-4 w-4" /> Add Task
                 </button>
@@ -165,6 +169,13 @@ export default function KanbanPage() {
           ))}
         </div>
       </div>
+
+      {/* Task Slideover */}
+      <TaskSlideover
+        open={!!selectedTask}
+        onClose={() => setSelectedTask(null)}
+        task={selectedTask}
+      />
     </div>
   );
 }
