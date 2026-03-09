@@ -2,8 +2,8 @@ import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  BarChart3, Calendar, ChevronLeft, Home, Kanban, LayoutDashboard,
-  Bell, Search, Settings, Users, Zap, CreditCard, Activity, LogOut, Menu
+  BarChart3, Calendar, ChevronLeft, Home, Kanban,
+  Bell, Search, Settings, Users, Zap, CreditCard, Activity, Menu, BookOpen
 } from "lucide-react";
 
 const navItems = [
@@ -13,6 +13,7 @@ const navItems = [
   { icon: Calendar, label: "Calendar", path: "/calendar" },
   { icon: Users, label: "Team", path: "/team" },
   { icon: Activity, label: "Activity", path: "/activity" },
+  { icon: BookOpen, label: "Docs", path: "/docs" },
   { icon: CreditCard, label: "Pricing", path: "/pricing" },
   { icon: Settings, label: "Settings", path: "/settings" },
 ];
@@ -28,7 +29,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {/* Mobile overlay */}
       <AnimatePresence>
         {mobileOpen && (
           <motion.div
@@ -41,13 +41,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         )}
       </AnimatePresence>
 
-      {/* Sidebar */}
       <aside
         className={`fixed md:relative z-50 h-full flex flex-col border-r border-border bg-card transition-all duration-300 ${
           collapsed ? "w-[72px]" : "w-64"
         } ${mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
       >
-        {/* Logo */}
         <div className="flex h-16 items-center justify-between border-b border-border px-4">
           <Link to="/" className="flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl gradient-primary shadow-primary-glow">
@@ -72,7 +70,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </button>
         </div>
 
-        {/* Nav */}
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
@@ -94,13 +91,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           })}
         </nav>
 
-        {/* User */}
         <div className="border-t border-border p-3">
           <div className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-muted transition-colors cursor-pointer">
             <div className="relative shrink-0">
-              <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-sm">
-                A
-              </div>
+              <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-sm">A</div>
               <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-success ring-2 ring-card" />
             </div>
             {!collapsed && (
@@ -113,23 +107,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </div>
       </aside>
 
-      {/* Main */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Top bar */}
         <header className="flex h-16 items-center justify-between border-b border-border bg-card/80 backdrop-blur-md px-4 md:px-6">
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => setMobileOpen(true)}
-              className="md:hidden p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors"
-            >
+            <button onClick={() => setMobileOpen(true)} className="md:hidden p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors">
               <Menu className="h-5 w-5" />
             </button>
             <div className="relative hidden sm:block">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                placeholder="Search anything..."
-                className="h-10 w-72 rounded-xl border-none bg-muted pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-              />
+              <input placeholder="Search anything..." className="h-10 w-72 rounded-xl border-none bg-muted pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -138,13 +124,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive ring-2 ring-card" />
             </button>
             <div className="h-8 w-px bg-border" />
-            <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-sm cursor-pointer hover:opacity-90 transition-opacity">
-              A
-            </div>
+            <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-sm cursor-pointer hover:opacity-90 transition-opacity">A</div>
           </div>
         </header>
 
-        {/* Content */}
         <main className="flex-1 overflow-y-auto">
           <motion.div
             key={location.pathname}
