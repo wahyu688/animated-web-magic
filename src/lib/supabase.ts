@@ -1,11 +1,13 @@
 import { createClient } from '@supabase/supabase-js'
 
-// Variabel ini HARUS diawali NEXT_PUBLIC_ agar bisa dibaca di browser
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+const isServer = typeof window === 'undefined';
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("Missing Supabase Environment Variables!");
-}
+// Gunakan nama service 'rest' (port internal 3000) jika di server
+// Gunakan IP Publik (port 8000) jika di browser
+const supabaseUrl = isServer 
+  ? 'http://supabase-rest:3000' 
+  : 'http://31.97.48.241:8000';
 
-export const supabase = createClient(supabaseUrl || 'http://31.97.48.241:8000', supabaseAnonKey || '');
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRlZmF1bHQiLCJyb2xlIjoiYW5vbiIsImlhdCI6MTYxNTk4NDIyOSwiZXhwIjoxOTMxNTYwMjI5fQ.1111111111111111111111111111111111111111111'; // Paste langsung di sini
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
