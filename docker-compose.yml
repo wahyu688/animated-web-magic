@@ -1,7 +1,11 @@
+# PINDAHKAN networks ke paling atas
 networks:
   supabase_network:
     driver: bridge
-    external: true
+
+# TAMBAHKAN volumes di tingkat paling atas
+volumes:
+  supabase_functions:
 
 services:
   db:
@@ -80,15 +84,11 @@ services:
     restart: always
     ports:
       - "8000:3000"
+    volumes:
+      - supabase_functions:/tmp/supabase-edge-functions
     environment:
-      # Koneksi Internal ke API (Pakai nama service)
       SUPABASE_URL: http://rest:3000
       SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
       SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
-      # URL Publik untuk Browser
       SUPABASE_PUBLIC_URL: ${NEXT_PUBLIC_SUPABASE_URL}
-      # Memperbaiki error ERR_ASSERTION sebelumnya
       EDGE_FUNCTIONS_MANAGEMENT_FOLDER: /tmp/supabase-edge-functions
-  
-  volumes:
-    supabase_functions:
