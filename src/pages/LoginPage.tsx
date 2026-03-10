@@ -1,11 +1,44 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Eye, EyeOff, Mail, Zap } from "lucide-react";
+import { Eye, EyeOff, Mail, Zap, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "../lib/supabase"; // SESUAIKAN: Pastikan path ini mengarah ke file supabase.ts Anda
 
 export default function LoginPage() {
   const [showPass, setShowPass] = useState(false);
+  
+  // State baru untuk Supabase
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+  
   const navigate = useNavigate();
+
+  // Fungsi untuk menangani proses login
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setErrorMsg("");
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: password,
+      });
+
+      if (error) throw error;
+
+      // Jika berhasil login, arahkan ke halaman utama/dashboard
+      console.log("Login sukses!", data);
+      navigate("/"); 
+      
+    } catch (error: any) {
+      setErrorMsg(error.message || "Gagal melakukan login. Silakan periksa kredensial Anda.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -33,19 +66,28 @@ export default function LoginPage() {
             <p className="text-sm text-muted-foreground">Enter your details to access your workspace.</p>
           </div>
 
+          {/* Menampilkan pesan error jika login gagal */}
+          {errorMsg && (
+            <motion.div 
+              initial={{ opacity: 0, y: -10 }} 
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-3 text-red-500 text-sm"
+            >
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <p>{errorMsg}</p>
+            </motion.div>
+          )}
+
           {/* Form */}
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              navigate("/");
-            }}
-            className="space-y-5"
-          >
+          <form onSubmit={handleLogin} className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-muted-foreground mb-1.5 ml-1">Email Address</label>
               <div className="relative">
                 <input
                   type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
                   placeholder="name@company.com"
                   className="block w-full px-4 py-3 rounded-xl border border-border bg-muted text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-primary transition-colors text-sm"
                 />
@@ -61,6 +103,9 @@ export default function LoginPage() {
               <div className="relative">
                 <input
                   type={showPass ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
                   placeholder="••••••••"
                   className="block w-full px-4 py-3 rounded-xl border border-border bg-muted text-foreground placeholder:text-muted-foreground focus:border-primary focus:ring-1 focus:ring-primary transition-colors text-sm"
                 />
@@ -78,9 +123,10 @@ export default function LoginPage() {
               whileHover={{ scale: 1.01 }}
               whileTap={{ scale: 0.98 }}
               type="submit"
-              className="w-full py-3 rounded-xl bg-primary text-primary-foreground text-sm font-semibold shadow-primary-glow hover:opacity-90 transition-opacity"
+              disabled={loading}
+              className={`w-full py-3 rounded-xl bg-primary text-primary-foreground text-sm font-semibold shadow-primary-glow transition-opacity ${loading ? 'opacity-70 cursor-not-allowed' : 'hover:opacity-90'}`}
             >
-              Sign In
+              {loading ? "Signing In..." : "Sign In"}
             </motion.button>
           </form>
 
@@ -96,6 +142,7 @@ export default function LoginPage() {
 
           {/* Social */}
           <div className="grid grid-cols-2 gap-3">
+            {/* ... (Kode tombol Google dan GitHub tetap sama seperti milik Anda) ... */}
             <button className="flex items-center justify-center px-4 py-2.5 border border-border rounded-xl text-sm font-medium text-foreground hover:bg-muted transition-colors">
               <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
