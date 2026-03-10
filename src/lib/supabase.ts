@@ -1,10 +1,7 @@
 import { createClient } from '@supabase/supabase-js'
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
-if (!supabaseUrl || !supabaseAnonKey) {
-  console.error("Supabase URL atau Anon Key belum diset di file .env!");
-}
+// Tambahkan nilai cadangan (fallback) agar tidak meledak saat build gagal membaca .env
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "https://url-belum-terbaca.com";
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "kunci-belum-terbaca";
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
