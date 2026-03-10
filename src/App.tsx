@@ -2,7 +2,7 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Eye, EyeOff, Mail, Zap, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { supabase } from "../lib/supabase"; // SESUAIKAN: Pastikan path ini mengarah ke file supabase.ts Anda
+import { supabase } from "./lib/supabase"; // SESUAIKAN: Pastikan path ini mengarah ke file supabase.ts Anda
 
 export default function LoginPage() {
   const [showPass, setShowPass] = useState(false);
