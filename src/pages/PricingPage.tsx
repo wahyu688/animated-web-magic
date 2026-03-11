@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Check } from "lucide-react";
-import { Link } from "react-router-dom"; // <-- Tambahan untuk navigasi
+import { Link } from "react-router-dom";
 
 const plans = [
   {
@@ -41,31 +41,35 @@ export default function PricingPage() {
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
 
   return (
-    <div className="min-h-screen bg-background-light pt-32 pb-20">
+    // DI SINI PERUBAHANNYA: pt-32 diubah menjadi pt-10 (Jauh lebih rapat ke atas)
+    <div className="min-h-screen bg-background-light pt-10 pb-20">
       
-      {/* Tombol Back to Home (Khusus untuk tampilan mandiri di luar Layout Dashboard) */}
-      <div className="max-w-6xl mx-auto px-6 mb-8">
-        <Link to="/" className="text-sm font-semibold text-muted-foreground hover:text-primary transition-colors flex items-center gap-2">
+      {/* Tombol Back to Home */}
+      {/* DI SINI PERUBAHANNYA: mb-8 diubah menjadi mb-4 agar lebih dekat ke judul */}
+      <div className="max-w-6xl mx-auto px-6 mb-4">
+        <Link to="/" className="text-sm font-semibold text-muted-foreground hover:text-primary transition-colors flex items-center gap-2 w-max">
           ← Back to Home
         </Link>
       </div>
 
-      <div className="p-6 lg:p-10 max-w-6xl mx-auto">
+      {/* DI SINI PERUBAHANNYA: Hapus padding top (pt) tambahan agar tidak double padding */}
+      <div className="px-6 lg:px-10 pb-10 max-w-6xl mx-auto">
+        
         {/* Header */}
-        <div className="text-center mb-16">
+        <div className="text-center mb-12">
           <motion.h1
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-4xl md:text-5xl font-black text-foreground tracking-tight mb-4"
+            className="text-4xl md:text-5xl font-black text-foreground tracking-tight mb-4 mt-2"
           >
             Simple, transparent pricing
           </motion.h1>
-          <p className="text-muted-foreground text-lg max-w-2xl mx-auto mb-10">
+          <p className="text-muted-foreground text-lg max-w-2xl mx-auto mb-8">
             Choose the plan that works best for your team. All plans include a 14-day free trial.
           </p>
 
           {/* Toggle */}
-          <div className="flex justify-center mb-12">
+          <div className="flex justify-center mb-10">
             <div className="inline-flex items-center p-1.5 bg-card border border-border rounded-2xl shadow-sm">
               <button
                 onClick={() => setBilling("monthly")}
@@ -129,7 +133,6 @@ export default function PricingPage() {
                 ))}
               </div>
               
-              {/* Tombol yang mengarah ke /login */}
               <Link to="/login">
                 <motion.button
                   whileHover={{ scale: 1.02 }}
@@ -152,7 +155,7 @@ export default function PricingPage() {
         </div>
 
         {/* FAQ */}
-        <div className="max-w-3xl mx-auto py-16">
+        <div className="max-w-3xl mx-auto py-10">
           <h2 className="text-2xl font-black text-foreground text-center mb-10">Frequently Asked Questions</h2>
           <div className="space-y-4">
             {faqs.map((faq) => (
