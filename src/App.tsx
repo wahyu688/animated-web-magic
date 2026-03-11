@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
+import AnalyticsPage from "./pages/AnalyticsPage";
 import DashboardLayout from "./components/layout/DashboardLayout";
 
 export default function App() {
@@ -20,16 +21,16 @@ export default function App() {
           } 
         />
         
-        {/* Nanti untuk halaman lain, formatnya sama persis seperti ini: */}
-        {/* <Route 
-          path="/kanban" 
+        {/* { Nanti untuk halaman lain, formatnya sama persis seperti ini: } */}
+        { <Route 
+          path="/analytics" 
           element={
             <DashboardLayout>
-              <KanbanPage />
+              <AnalyticsPage />
             </DashboardLayout>
           } 
         /> 
-        */}
+        }
 
         {/* Tangkap semua URL yang tidak valid, kembalikan ke Root */}
         <Route path="*" element={<Navigate to="/" replace />} />
