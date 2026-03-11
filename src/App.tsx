@@ -8,12 +8,14 @@ import TeamPage from "./pages/TeamPage";
 import ActivityPage from "./pages/ActivityPage";
 import SettingsPage from "./pages/SettingsPage";
 import DashboardLayout from "./components/layout/DashboardLayout";
+import LandingPage from "./pages/LandingPage";
 
 export default function App() {
   return (
     <Router>
       <Routes>
         {/* Rute Publik (Tanpa Sidebar/Navbar) */}
+        <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
         
         {/* Rute Privat (DashboardPage dimasukkan sebagai 'children' ke dalam Layout) */}
