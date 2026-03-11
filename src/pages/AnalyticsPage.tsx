@@ -1,8 +1,10 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { TrendingUp, TrendingDown, Users, DollarSign, Clock, BarChart3, ArrowUpRight, Minus, Globe, ExternalLink, X, Filter, Plus } from "lucide-react";
-import { useState } from "react";
+import { TrendingUp, TrendingDown, Users, DollarSign, Clock, BarChart3, ArrowUpRight, Minus, Globe, ExternalLink, X, Filter, Plus, Loader2 } from "lucide-react";
+import { useState, useEffect } from "react";
+import { supabase } from "../lib/supabase";
+import { useToast } from "@/hooks/use-toast";
 
-// --- DATA DINAMIS BERDASARKAN WAKTU ---
+// --- DATA STATIS UNTUK KPI & PETA (Belum masuk database) ---
 type TimeRange = "7D" | "30D" | "3M" | "1Y";
 
 const statsData: Record<TimeRange, any[]> = {
@@ -32,21 +34,6 @@ const statsData: Record<TimeRange, any[]> = {
   ]
 };
 
-const trafficSources = [
-  { name: "Direct", pct: 45, color: "bg-primary" },
-  { name: "Social Media", pct: 32, color: "bg-violet-500" },
-  { name: "Organic Search", pct: 18, color: "bg-info" },
-  { name: "Referrals", pct: 5, color: "bg-warning" },
-];
-
-const topPages = [
-  { name: "/dashboard", views: "24,120", unique: "18,200", bounce: "32%", trend: "up" },
-  { name: "/pricing", views: "18,400", unique: "14,300", bounce: "28%", trend: "up" },
-  { name: "/features", views: "12,800", unique: "9,600", bounce: "45%", trend: "down" },
-  { name: "/docs/quickstart", views: "8,200", unique: "6,100", bounce: "22%", trend: "up" },
-  { name: "/blog", views: "6,100", unique: "4,800", bounce: "38%", trend: "up" },
-];
-
 const geoData = [
   { region: "USA", pct: 42 },
   { region: "Europe", pct: 35 },
@@ -54,46 +41,98 @@ const geoData = [
   { region: "Other", pct: 8 },
 ];
 
-const initialProjects = [
-  { name: "Website Redesign", progress: 75, status: "In Progress", statusColor: "bg-info/10 text-info", iconColor: "bg-primary/10 text-primary" },
-  { name: "API Integration", progress: 30, status: "Review", statusColor: "bg-warning/10 text-warning", iconColor: "bg-warning/10 text-warning" },
-  { name: "Mobile App V2", progress: 90, status: "Testing", statusColor: "bg-success/10 text-success", iconColor: "bg-success/10 text-success" },
-  { name: "Design System", progress: 15, status: "Planned", statusColor: "bg-muted text-muted-foreground", iconColor: "bg-violet-100 text-violet-600" },
-];
-
 export default function AnalyticsPage() {
   const [activeRange, setActiveRange] = useState<TimeRange>("30D");
   const currentStats = statsData[activeRange];
+  const { toast } = useToast();
 
-  // --- STATE UNTUK MODALS & FITUR BARU ---
+  // --- STATE UNTUK DATA DINAMIS DARI SUPABASE ---
+  const [trafficSources, setTrafficSources] = useState<any[]>([]);
+  const [topPages, setTopPages] = useState<any[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [focusTasks, setFocusTasks] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // --- STATE UI & MODALS ---
   const [isTrafficModalOpen, setIsTrafficModalOpen] = useState(false);
-  
-  // Filter Projects State
   const [projectFilter, setProjectFilter] = useState<"All" | "In Progress" | "Review" | "Testing" | "Planned">("All");
   const [isProjectFilterOpen, setIsProjectFilterOpen] = useState(false);
-  const filteredProjects = projectFilter === "All" ? initialProjects : initialProjects.filter(p => p.status === projectFilter);
-
-  // Focus Mode State
-  const [focusTasks, setFocusTasks] = useState([
-    { tag: "Design", tagColor: "text-primary bg-primary/10", title: "Update Brand Assets", desc: "Replace old logos with new vectors across landing pages.", time: "2h remaining" },
-    { tag: "Dev", tagColor: "text-warning bg-warning/10", title: "Fix Auth Bug #204", desc: "Token refresh logic failing on Safari mobile browser.", time: "Today" },
-  ]);
   const [isAddFocusModalOpen, setIsAddFocusModalOpen] = useState(false);
   const [newFocusTitle, setNewFocusTitle] = useState("");
   const [newFocusDesc, setNewFocusDesc] = useState("");
 
-  const handleAddNewFocus = () => {
-    if (newFocusTitle.trim()) {
-      setFocusTasks([
-        ...focusTasks,
-        {
-          tag: "Custom",
-          tagColor: "text-violet-600 bg-violet-100",
-          title: newFocusTitle,
-          desc: newFocusDesc || "No description provided.",
-          time: "Just added"
-        }
-      ]);
+  const filteredProjects = projectFilter === "All" ? projects : projects.filter(p => p.status === projectFilter);
+
+  // --- FETCH DATA & REAL-TIME LISTENER SUPABASE ---
+  useEffect(() => {
+    const fetchDashboardInfo = async () => {
+      setIsLoading(true);
+      try {
+        const [trafficRes, pagesRes, projRes, focusRes] = await Promise.all([
+          supabase.from('traffic_sources').select('*').order('pct', { ascending: false }),
+          supabase.from('top_pages').select('*').order('created_at', { ascending: true }),
+          supabase.from('active_projects').select('*').order('created_at', { ascending: true }),
+          supabase.from('focus_tasks').select('*').order('created_at', { ascending: false })
+        ]);
+
+        if (trafficRes.data) setTrafficSources(trafficRes.data);
+        if (pagesRes.data) setTopPages(pagesRes.data);
+        if (projRes.data) setProjects(projRes.data);
+        if (focusRes.data) setFocusTasks(focusRes.data);
+      } catch (error: any) {
+        console.error("Gagal menarik data:", error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchDashboardInfo();
+
+    // Setup Real-Time Web Socket
+    const channel = supabase.channel('analytics-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'traffic_sources' }, (payload) => {
+        setTrafficSources(current => handleRealtime(current, payload).sort((a: any, b: any) => b.pct - a.pct));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'top_pages' }, (payload) => {
+        setTopPages(current => handleRealtime(current, payload));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'active_projects' }, (payload) => {
+        setProjects(current => handleRealtime(current, payload));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'focus_tasks' }, (payload) => {
+        setFocusTasks(current => handleRealtime(current, payload, true)); // true = insert di atas
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  // Fungsi utilitas untuk memproses data Real-Time
+  const handleRealtime = (currentArray: any[], payload: any, unshift = false) => {
+    if (payload.eventType === 'INSERT') return unshift ? [payload.new, ...currentArray] : [...currentArray, payload.new];
+    if (payload.eventType === 'DELETE') return currentArray.filter(item => item.id !== payload.old.id);
+    if (payload.eventType === 'UPDATE') return currentArray.map(item => item.id === payload.new.id ? payload.new : item);
+    return currentArray;
+  };
+
+  // --- FUNGSI INSERT TUGAS BARU ---
+  const handleAddNewFocus = async () => {
+    if (!newFocusTitle.trim()) return;
+
+    const newTask = {
+      tag: "Custom",
+      tagColor: "text-violet-600 bg-violet-100",
+      title: newFocusTitle,
+      desc: newFocusDesc || "No description provided.",
+      time: "Just added"
+    };
+
+    const { error } = await supabase.from("focus_tasks").insert([newTask]);
+    
+    if (error) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    } else {
+      toast({ title: "Task Added", description: "Tugas berhasil ditambahkan ke database!" });
       setNewFocusTitle("");
       setNewFocusDesc("");
       setIsAddFocusModalOpen(false);
@@ -119,11 +158,7 @@ export default function AnalyticsPage() {
                 }`}
               >
                 {activeRange === range && (
-                  <motion.div
-                    layoutId="active-range-tab"
-                    className="absolute inset-0 bg-card shadow-sm rounded-lg -z-10"
-                    transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                  />
+                  <motion.div layoutId="active-range-tab" className="absolute inset-0 bg-card shadow-sm rounded-lg -z-10" transition={{ type: "spring", stiffness: 300, damping: 30 }} />
                 )}
                 {range}
               </button>
@@ -152,10 +187,7 @@ export default function AnalyticsPage() {
             <AnimatePresence mode="wait">
               <motion.h3 
                 key={stat.value}
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                transition={{ duration: 0.2 }}
+                initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} transition={{ duration: 0.2 }}
                 className="text-3xl font-bold text-foreground tracking-tight"
               >
                 {stat.value}
@@ -217,21 +249,25 @@ export default function AnalyticsPage() {
         {/* Traffic Sources */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className="bg-card rounded-2xl border border-border shadow-card p-6">
           <h2 className="text-lg font-bold text-foreground mb-6">Traffic Sources</h2>
-          <div className="space-y-5">
-            {trafficSources.map((s, i) => (
-              <motion.div key={s.name} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5 + i * 0.1 }}>
-                <div className="flex justify-between text-xs font-medium mb-1.5">
-                  <span className="text-muted-foreground">{s.name}</span>
-                  <span className="text-foreground">{s.pct}%</span>
-                </div>
-                <div className="w-full bg-muted rounded-full h-2.5">
-                  <motion.div className={`${s.color} h-2.5 rounded-full`} initial={{ width: 0 }} animate={{ width: `${s.pct}%` }} transition={{ duration: 1, delay: 0.6 + i * 0.1, ease: "easeOut" }} />
-                </div>
-              </motion.div>
-            ))}
-          </div>
+          {isLoading ? (
+            <div className="flex justify-center items-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>
+          ) : (
+            <div className="space-y-5">
+              {trafficSources.map((s, i) => (
+                <motion.div key={s.id || s.name} initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.5 + i * 0.1 }}>
+                  <div className="flex justify-between text-xs font-medium mb-1.5">
+                    <span className="text-muted-foreground">{s.name}</span>
+                    <span className="text-foreground">{s.pct}%</span>
+                  </div>
+                  <div className="w-full bg-muted rounded-full h-2.5">
+                    <motion.div className={`${s.color} h-2.5 rounded-full`} initial={{ width: 0 }} animate={{ width: `${s.pct}%` }} transition={{ duration: 1, delay: 0.6 + i * 0.1, ease: "easeOut" }} />
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          )}
           <div className="mt-6 pt-6 border-t border-border flex items-center justify-between text-xs text-muted-foreground">
-            <span>Updated 2 mins ago</span>
+            <span className="flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-success animate-pulse"/> Live Sync</span>
             <button onClick={() => setIsTrafficModalOpen(true)} className="text-primary hover:underline font-medium">View Details</button>
           </div>
         </motion.div>
@@ -243,27 +279,15 @@ export default function AnalyticsPage() {
               <h2 className="text-lg font-bold text-foreground">Active Projects</h2>
               <p className="text-xs text-muted-foreground mt-1">Track project progress and milestones.</p>
             </div>
-            {/* Filter Projects Dropdown / Popover (Disimulasikan dengan state sederhana) */}
             <div className="relative">
-              <button 
-                onClick={() => setIsProjectFilterOpen(!isProjectFilterOpen)}
-                className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium bg-muted border border-border rounded-lg text-muted-foreground hover:text-foreground transition-colors"
-              >
+              <button onClick={() => setIsProjectFilterOpen(!isProjectFilterOpen)} className="flex items-center gap-2 px-3 py-1.5 text-xs font-medium bg-muted border border-border rounded-lg text-muted-foreground hover:text-foreground transition-colors">
                 <Filter className="w-3 h-3" /> {projectFilter}
               </button>
-              
               <AnimatePresence>
                 {isProjectFilterOpen && (
-                  <motion.div 
-                    initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
-                    className="absolute right-0 mt-2 w-32 bg-card border border-border rounded-xl shadow-lg z-20 py-1"
-                  >
+                  <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="absolute right-0 mt-2 w-32 bg-card border border-border rounded-xl shadow-lg z-20 py-1">
                     {["All", "In Progress", "Review", "Testing", "Planned"].map((status) => (
-                      <button
-                        key={status}
-                        onClick={() => { setProjectFilter(status as any); setIsProjectFilterOpen(false); }}
-                        className={`w-full text-left px-4 py-2 text-xs hover:bg-muted/50 transition-colors ${projectFilter === status ? "text-primary font-bold" : "text-foreground"}`}
-                      >
+                      <button key={status} onClick={() => { setProjectFilter(status as any); setIsProjectFilterOpen(false); }} className={`w-full text-left px-4 py-2 text-xs hover:bg-muted/50 transition-colors ${projectFilter === status ? "text-primary font-bold" : "text-foreground"}`}>
                         {status}
                       </button>
                     ))}
@@ -282,35 +306,33 @@ export default function AnalyticsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
-                <AnimatePresence>
-                  {filteredProjects.map((p) => (
-                    <motion.tr 
-                      key={p.name}
-                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} layout
-                      className="group hover:bg-muted/50 transition-colors"
-                    >
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-3">
-                          <div className={`w-8 h-8 rounded-lg ${p.iconColor} flex items-center justify-center`}>
-                            <BarChart3 className="h-4 w-4" />
+                {isLoading ? (
+                  <tr><td colSpan={3} className="py-10 text-center"><Loader2 className="animate-spin mx-auto text-muted-foreground" /></td></tr>
+                ) : (
+                  <AnimatePresence>
+                    {filteredProjects.map((p) => (
+                      <motion.tr key={p.id || p.name} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} layout className="group hover:bg-muted/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-8 h-8 rounded-lg ${p.iconColor} flex items-center justify-center`}><BarChart3 className="h-4 w-4" /></div>
+                            <span className="font-medium text-foreground text-sm">{p.name}</span>
                           </div>
-                          <span className="font-medium text-foreground text-sm">{p.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 w-40">
-                        <div className="flex items-center gap-2">
-                          <div className="w-full bg-muted rounded-full h-1.5">
-                            <motion.div className="bg-primary h-1.5 rounded-full" initial={{ width: 0 }} animate={{ width: `${p.progress}%` }} transition={{ duration: 0.5 }} />
+                        </td>
+                        <td className="px-6 py-4 w-40">
+                          <div className="flex items-center gap-2">
+                            <div className="w-full bg-muted rounded-full h-1.5">
+                              <motion.div className="bg-primary h-1.5 rounded-full" initial={{ width: 0 }} animate={{ width: `${p.progress}%` }} transition={{ duration: 0.5 }} />
+                            </div>
+                            <span className="text-xs text-muted-foreground font-medium">{p.progress}%</span>
                           </div>
-                          <span className="text-xs text-muted-foreground font-medium">{p.progress}%</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${p.statusColor}`}>{p.status}</span>
-                      </td>
-                    </motion.tr>
-                  ))}
-                </AnimatePresence>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${p.statusColor}`}>{p.status}</span>
+                        </td>
+                      </motion.tr>
+                    ))}
+                  </AnimatePresence>
+                )}
               </tbody>
             </table>
           </div>
@@ -323,29 +345,24 @@ export default function AnalyticsPage() {
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.6 }} className="bg-card rounded-2xl shadow-card border border-border p-6">
           <h2 className="text-lg font-bold text-foreground mb-4">Focus Mode</h2>
           <div className="space-y-4">
-            <AnimatePresence>
-              {focusTasks.map((t, i) => (
-                <motion.div 
-                  key={i} 
-                  initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }}
-                  className="p-4 rounded-xl bg-muted/50 border border-border hover:border-primary/30 transition-colors group cursor-pointer"
-                >
-                  <div className="flex justify-between items-start mb-2">
-                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide ${t.tagColor}`}>{t.tag}</span>
-                    <ExternalLink className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
-                  </div>
-                  <h4 className="text-sm font-semibold text-foreground mb-1">{t.title}</h4>
-                  <p className="text-xs text-muted-foreground line-clamp-2">{t.desc}</p>
-                  <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                    <Clock className="h-3 w-3" /> {t.time}
-                  </div>
-                </motion.div>
-              ))}
-            </AnimatePresence>
-            <button 
-              onClick={() => setIsAddFocusModalOpen(true)}
-              className="w-full py-2.5 rounded-xl border border-dashed border-border text-muted-foreground text-sm font-medium hover:text-primary hover:border-primary/50 transition-all flex items-center justify-center gap-2"
-            >
+            {isLoading ? (
+              <div className="flex justify-center py-10"><Loader2 className="animate-spin text-muted-foreground" /></div>
+            ) : (
+              <AnimatePresence>
+                {focusTasks.map((t) => (
+                  <motion.div key={t.id || t.title} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="p-4 rounded-xl bg-muted/50 border border-border hover:border-primary/30 transition-colors group cursor-pointer">
+                    <div className="flex justify-between items-start mb-2">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide ${t.tagColor}`}>{t.tag}</span>
+                      <ExternalLink className="h-3.5 w-3.5 text-muted-foreground group-hover:text-primary transition-colors" />
+                    </div>
+                    <h4 className="text-sm font-semibold text-foreground mb-1">{t.title}</h4>
+                    <p className="text-xs text-muted-foreground line-clamp-2">{t.desc}</p>
+                    <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground"><Clock className="h-3 w-3" /> {t.time}</div>
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            )}
+            <button onClick={() => setIsAddFocusModalOpen(true)} className="w-full py-2.5 rounded-xl border border-dashed border-border text-muted-foreground text-sm font-medium hover:text-primary hover:border-primary/50 transition-all flex items-center justify-center gap-2">
               <Plus className="h-4 w-4" /> Add New Focus
             </button>
           </div>
@@ -368,10 +385,7 @@ export default function AnalyticsPage() {
               { top: "25%", left: "22%", size: "12px" }, { top: "35%", left: "48%", size: "8px" },
               { top: "40%", left: "75%", size: "10px" }, { top: "60%", left: "35%", size: "6px" }, { top: "30%", left: "62%", size: "8px" },
             ].map((dot, i) => (
-              <motion.div
-                key={i} className="absolute rounded-full bg-primary" style={{ top: dot.top, left: dot.left, width: dot.size, height: dot.size }}
-                animate={{ opacity: [0.3, 1, 0.3], scale: [1, 1.5, 1] }} transition={{ duration: 2, repeat: Infinity, delay: i * 0.4 }}
-              />
+              <motion.div key={i} className="absolute rounded-full bg-primary" style={{ top: dot.top, left: dot.left, width: dot.size, height: dot.size }} animate={{ opacity: [0.3, 1, 0.3], scale: [1, 1.5, 1] }} transition={{ duration: 2, repeat: Infinity, delay: i * 0.4 }} />
             ))}
             <div className="absolute bottom-4 left-4 flex gap-3">
               {geoData.slice(0, 3).map((g) => (
@@ -405,11 +419,13 @@ export default function AnalyticsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {topPages.map((page) => (
-                <tr key={page.name} className="group hover:bg-muted/50 transition-colors">
+              {isLoading ? (
+                <tr><td colSpan={5} className="py-10 text-center"><Loader2 className="animate-spin mx-auto text-muted-foreground" /></td></tr>
+              ) : topPages.map((page) => (
+                <tr key={page.id || page.name} className="group hover:bg-muted/50 transition-colors">
                   <td className="px-6 py-4 font-medium text-foreground font-mono text-sm">{page.name}</td>
                   <td className="px-6 py-4 text-sm text-muted-foreground">{page.views}</td>
-                  <td className="px-6 py-4 text-sm text-muted-foreground">{page.unique}</td>
+                  <td className="px-6 py-4 text-sm text-muted-foreground">{page.unique_views || page.unique}</td>
                   <td className="px-6 py-4 text-sm text-muted-foreground">{page.bounce}</td>
                   <td className="px-6 py-4 text-right">
                     {page.trend === "up" ? <TrendingUp className="h-4 w-4 text-success inline" /> : <TrendingDown className="h-4 w-4 text-destructive inline" />}
@@ -435,10 +451,9 @@ export default function AnalyticsPage() {
               </div>
               <div className="p-6 space-y-4">
                 <p className="text-sm text-muted-foreground">Comprehensive breakdown of all incoming traffic sources over the selected period.</p>
-                {/* Dummy Detail Data */}
                 <div className="space-y-3 pt-2">
                   {trafficSources.map(s => (
-                    <div key={s.name} className="flex justify-between items-center p-3 bg-muted/50 rounded-xl border border-border/50">
+                    <div key={s.id || s.name} className="flex justify-between items-center p-3 bg-muted/50 rounded-xl border border-border/50">
                       <div className="flex items-center gap-3">
                         <div className={`w-3 h-3 rounded-full ${s.color}`} />
                         <span className="font-medium text-sm text-foreground">{s.name}</span>
@@ -481,7 +496,6 @@ export default function AnalyticsPage() {
           </div>
         )}
       </AnimatePresence>
-
     </div>
   );
 }
