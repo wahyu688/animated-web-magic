@@ -4,6 +4,7 @@ import DashboardPage from "./pages/DashboardPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import KanbanPage from "./pages/KanbanPage";
 import CalendarPage from "./pages/CalendarPage";
+import TeamPage from "./pages/TeamPage";
 import DashboardLayout from "./components/layout/DashboardLayout";
 
 export default function App() {
@@ -39,6 +40,16 @@ export default function App() {
           element={
             <DashboardLayout>
               <KanbanPage />
+            </DashboardLayout>
+          } 
+        /> 
+        }
+
+        { <Route 
+          path="/calendar" 
+          element={
+            <DashboardLayout>
+              <CalendarPage />
             </DashboardLayout>
           } 
         /> 
