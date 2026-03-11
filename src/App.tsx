@@ -1,5 +1,11 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+
+// --- HALAMAN PUBLIK ---
+import LandingPage from "./pages/LandingPage";
+import PricingPage from "./pages/PricingPage";
 import LoginPage from "./pages/LoginPage";
+
+// --- HALAMAN PRIVAT ---
 import DashboardPage from "./pages/DashboardPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import KanbanPage from "./pages/KanbanPage";
@@ -7,100 +13,55 @@ import CalendarPage from "./pages/CalendarPage";
 import TeamPage from "./pages/TeamPage";
 import ActivityPage from "./pages/ActivityPage";
 import SettingsPage from "./pages/SettingsPage";
-import DashboardLayout from "./components/layout/DashboardLayout";
-import LandingPage from "./pages/LandingPage";
-import PricingPage from "./pages/PricingPage";
+
+// --- LAYOUT ---
+// Pastikan path ini sesuai dengan tempat Anda menyimpan ProtectedLayout.tsx
+import ProtectedLayout from "./components/layout/ProtectedLayout"; 
 
 export default function App() {
   return (
     <Router>
       <Routes>
-        {/* Rute Publik (Tanpa Sidebar/Navbar) */}
+        {/* ============================== */}
+        {/* RUTE PUBLIK (Bisa diakses tanpa login) */}
+        {/* ============================== */}
         <Route path="/" element={<LandingPage />} />
+        <Route path="/pricing" element={<PricingPage />} />
         <Route path="/login" element={<LoginPage />} />
         
-        {/* Rute Privat (DashboardPage dimasukkan sebagai 'children' ke dalam Layout) */}
+        {/* ============================== */}
+        {/* RUTE PRIVAT (Harus login, dilindungi oleh ProtectedLayout) */}
+        {/* ============================== */}
         <Route 
           path="/dashboard" 
-          element={
-            <DashboardLayout>
-              <DashboardPage />
-            </DashboardLayout>
-          } 
+          element={<ProtectedLayout><DashboardPage /></ProtectedLayout>} 
         />
-        
-        {/* { Nanti untuk halaman lain, formatnya sama persis seperti ini: } */}
-        { <Route 
+        <Route 
           path="/analytics" 
-          element={
-            <DashboardLayout>
-              <AnalyticsPage />
-            </DashboardLayout>
-          } 
-        /> 
-        }
-
-        { <Route 
+          element={<ProtectedLayout><AnalyticsPage /></ProtectedLayout>} 
+        />
+        <Route 
           path="/kanban" 
-          element={
-            <DashboardLayout>
-              <KanbanPage />
-            </DashboardLayout>
-          } 
-        /> 
-        }
-
-        { <Route 
+          element={<ProtectedLayout><KanbanPage /></ProtectedLayout>} 
+        />
+        <Route 
           path="/calendar" 
-          element={
-            <DashboardLayout>
-              <CalendarPage />
-            </DashboardLayout>
-          } 
-        /> 
-        }
-
-        { <Route 
+          element={<ProtectedLayout><CalendarPage /></ProtectedLayout>} 
+        />
+        <Route 
           path="/team" 
-          element={
-            <DashboardLayout>
-              <TeamPage />
-            </DashboardLayout>
-          } 
-        /> 
-        }
-
-        { <Route 
+          element={<ProtectedLayout><TeamPage /></ProtectedLayout>} 
+        />
+        <Route 
           path="/activity" 
-          element={
-            <DashboardLayout>
-              <ActivityPage />
-            </DashboardLayout>
-          } 
-        /> 
-        }
-
-        { <Route 
+          element={<ProtectedLayout><ActivityPage /></ProtectedLayout>} 
+        />
+        <Route 
           path="/settings" 
-          element={
-            <DashboardLayout>
-              <SettingsPage />
-            </DashboardLayout>
-          } 
-        /> 
-        }
+          element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} 
+        />
 
-        { <Route 
-          path="/pricing" 
-          element={
-            <DashboardLayout>
-              <PricingPage />
-            </DashboardLayout>
-          } 
-        /> 
-        }
-
-        {/* Tangkap semua URL yang tidak valid, kembalikan ke Root */}
+        {/* Tangkap semua URL yang tidak valid, tendang kembali ke Landing Page */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>

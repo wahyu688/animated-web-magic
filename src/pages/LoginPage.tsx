@@ -31,7 +31,7 @@ export default function LoginPage() {
 
       // Jika berhasil login, arahkan ke halaman utama/dashboard
       console.log("Login sukses!", data);
-      navigate("/"); 
+      navigate("/dashboard"); 
       
     } catch (error: any) {
       setErrorMsg(error.message || "Gagal melakukan login. Silakan periksa kredensial Anda.");
