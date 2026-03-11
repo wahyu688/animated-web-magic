@@ -4,30 +4,42 @@ import { Save, Loader2, Calculator, Receipt, TrendingUp, CheckCircle2 } from "lu
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 
+// Daftar bulan paten (tidak bergantung pada database)
+const ALL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
 export default function FinancialPage() {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(true);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // Data ID untuk update ke database
+  // Data ID & Company ID untuk keperluan Insert/Update
   const [kpiId, setKpiId] = useState("");
+  const [companyId, setCompanyId] = useState("");
   const [chartData, setChartData] = useState<any[]>([]);
 
   // State Form Input Mentah (Raw Data)
   const [formData, setFormData] = useState({
-    month: "Sep",
+    month: "Jan", // Default ke bulan pertama
     actualRevenue: "",
-    targetRevenue: "", // Digunakan sebagai pembanding (Previous Val)
+    targetRevenue: "",
     activeUsers: "",
     churnedUsers: "",
     avgSessionMinutes: ""
   });
 
-  // 1. Ambil Data Awal
+  // 1. Ambil Data Awal & ID Perusahaan
   useEffect(() => {
     const fetchFinanceData = async () => {
       setIsLoading(true);
       try {
+        // Ambil ID Perusahaan user yang sedang login
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          const { data: profile } = await supabase.from('user_profiles').select('company_id').eq('id', session.user.id).maybeSingle();
+          if (profile) setCompanyId(profile.company_id);
+        }
+
+        // Ambil data KPI dan Grafik
         const [kpiRes, chartRes] = await Promise.all([
           supabase.from('dashboard_kpis').select('id').limit(1).maybeSingle(),
           supabase.from('chart_data').select('*').order('sort_order', { ascending: true })
@@ -44,71 +56,83 @@ export default function FinancialPage() {
     fetchFinanceData();
   }, []);
 
-  // 2. Fungsi Otomatisasi Perhitungan & Simpan
+  // 2. Fungsi Otomatisasi Perhitungan & Simpan (Mendukung Insert & Update)
   const handleProcessAndSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsProcessing(true);
 
     try {
-      // --- A. KONVERSI INPUT MENJADI ANGKA ---
       const rev = Number(formData.actualRevenue);
       const target = Number(formData.targetRevenue);
       const users = Number(formData.activeUsers);
       const churned = Number(formData.churnedUsers);
       const sessionMins = Number(formData.avgSessionMinutes);
 
-      // --- B. RUMUS KALKULASI OTOMATIS (Sistem yang Bekerja) ---
       const revGrowth = target > 0 ? ((rev - target) / target) * 100 : 0;
       const revTrend = revGrowth >= 0 ? "up" : "down";
 
       const churnRate = users > 0 ? (churned / users) * 100 : 0;
-      const churnTrend = churnRate <= 3 ? "stable" : "down"; // Jika di atas 3% anggap tren buruk (down)
+      const churnTrend = churnRate <= 3 ? "stable" : "down"; 
 
       const formattedMins = Math.floor(sessionMins);
       const formattedSecs = Math.round((sessionMins % 1) * 60);
 
-      // Siapkan payload untuk KPI Dashboard
       const kpiPayload = {
         total_revenue: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(rev),
         revenue_change: `${revGrowth >= 0 ? '+' : ''}${revGrowth.toFixed(1)}%`,
         revenue_trend: revTrend,
-        
         active_users: new Intl.NumberFormat('en-US').format(users),
         users_change: "Live", 
         users_trend: "up",
-        
         churn_rate: `${churnRate.toFixed(1)}%`,
         churn_change: "Calculated",
         churn_trend: churnTrend,
-        
         avg_session: `${formattedMins}m ${formattedSecs}s`,
         session_change: "Live",
         session_trend: "stable"
       };
 
-      // --- C. SIMPAN KE DATABASE ---
-      // 1. Update KPI
+      // --- SIMPAN KPI ---
       if (kpiId) {
+        // Jika sudah ada, Update
         await supabase.from('dashboard_kpis').update(kpiPayload).eq('id', kpiId);
+      } else {
+        // Jika akun baru kosong, Insert
+        const kpiRes = await supabase.from('dashboard_kpis').insert({ company_id: companyId, ...kpiPayload }).select().single();
+        if (kpiRes.data) setKpiId(kpiRes.data.id);
       }
 
-      // 2. Update Grafik (Chart) untuk bulan yang dipilih
-      const targetMonthId = chartData.find(c => c.month === formData.month)?.id;
-      if (targetMonthId) {
-        await supabase.from('chart_data')
-          .update({ current_val: rev, previous_val: target })
-          .eq('id', targetMonthId);
+      // --- SIMPAN GRAFIK (CHART) ---
+      const existingMonth = chartData.find(c => c.month === formData.month);
+      if (existingMonth) {
+        // Jika bulan ini sudah ada datanya, Update
+        await supabase.from('chart_data').update({ current_val: rev, previous_val: target }).eq('id', existingMonth.id);
           
-        // Refresh tabel lokal
-        const updatedChart = chartData.map(c => 
-          c.id === targetMonthId ? { ...c, current_val: rev, previous_val: target } : c
-        );
+        const updatedChart = chartData.map(c => c.id === existingMonth.id ? { ...c, current_val: rev, previous_val: target } : c);
         setChartData(updatedChart);
+      } else {
+        // Jika bulan ini belum ada (akun baru), Insert
+        const sortOrder = ALL_MONTHS.indexOf(formData.month) + 1;
+        const chartRes = await supabase.from('chart_data').insert({
+          company_id: companyId,
+          month: formData.month,
+          current_val: rev,
+          previous_val: target,
+          sort_order: sortOrder
+        }).select().single();
+
+        if (chartRes.data) {
+          const newChartData = [...chartData, chartRes.data].sort((a, b) => a.sort_order - b.sort_order);
+          setChartData(newChartData);
+        }
       }
+
+      // Reset form agar gampang input bulan berikutnya (Opsional)
+      setFormData({ ...formData, actualRevenue: "", targetRevenue: "", activeUsers: "", churnedUsers: "", avgSessionMinutes: "" });
 
       toast({ 
         title: "Report Processed", 
-        description: `Financial data for ${formData.month} successfully calculated and saved!`,
+        description: `Financial data for ${formData.month} successfully saved!`,
       });
 
     } catch (error) {
@@ -143,7 +167,8 @@ export default function FinancialPage() {
                 value={formData.month} onChange={(e) => setFormData({...formData, month: e.target.value})} required
                 className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 cursor-pointer text-foreground"
               >
-                {chartData.map(c => <option key={c.id} value={c.month}>{c.month}</option>)}
+                {/* Menggunakan daftar bulan permanen */}
+                {ALL_MONTHS.map(m => <option key={m} value={m}>{m}</option>)}
               </select>
             </div>
 
@@ -203,41 +228,51 @@ export default function FinancialPage() {
               <Receipt className="w-5 h-5 text-primary" />
               <h2 className="text-lg font-bold text-foreground">Annual Ledger</h2>
             </div>
-            <span className="flex items-center gap-1.5 text-xs font-semibold text-success bg-success/10 px-3 py-1.5 rounded-full">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Synced with Chart
-            </span>
+            {chartData.length > 0 && (
+              <span className="flex items-center gap-1.5 text-xs font-semibold text-success bg-success/10 px-3 py-1.5 rounded-full">
+                <CheckCircle2 className="w-3.5 h-3.5" /> Synced with Chart
+              </span>
+            )}
           </div>
           
           <div className="p-0 flex-1 overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-background border-b border-border">
-                <tr>
-                  <th className="px-6 py-4 font-bold text-muted-foreground uppercase tracking-wider text-xs">Month</th>
-                  <th className="px-6 py-4 font-bold text-muted-foreground uppercase tracking-wider text-xs">Actual Revenue</th>
-                  <th className="px-6 py-4 font-bold text-muted-foreground uppercase tracking-wider text-xs">Target / Prev</th>
-                  <th className="px-6 py-4 font-bold text-muted-foreground uppercase tracking-wider text-xs text-right">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border bg-card">
-                {chartData.map((row) => {
-                  const isUp = row.current_val >= row.previous_val;
-                  return (
-                    <tr key={row.id} className={`hover:bg-muted/30 transition-colors ${formData.month === row.month ? "bg-primary/5" : ""}`}>
-                      <td className="px-6 py-4 font-bold text-foreground">{row.month}</td>
-                      <td className="px-6 py-4 text-foreground font-mono">${row.current_val?.toLocaleString()}</td>
-                      <td className="px-6 py-4 text-muted-foreground font-mono">${row.previous_val?.toLocaleString()}</td>
-                      <td className="px-6 py-4 text-right">
-                        {isUp ? (
-                          <span className="inline-flex items-center gap-1 text-xs font-bold text-success"><TrendingUp className="w-3.5 h-3.5" /> Hit</span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-xs font-bold text-destructive">Miss</span>
-                        )}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+            {chartData.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+                <Receipt className="w-12 h-12 mb-3 opacity-20" />
+                <p className="text-sm">No financial data recorded yet.</p>
+                <p className="text-xs mt-1 opacity-70">Submit a monthly report to start tracking.</p>
+              </div>
+            ) : (
+              <table className="w-full text-left text-sm">
+                <thead className="bg-background border-b border-border">
+                  <tr>
+                    <th className="px-6 py-4 font-bold text-muted-foreground uppercase tracking-wider text-xs">Month</th>
+                    <th className="px-6 py-4 font-bold text-muted-foreground uppercase tracking-wider text-xs">Actual Revenue</th>
+                    <th className="px-6 py-4 font-bold text-muted-foreground uppercase tracking-wider text-xs">Target / Prev</th>
+                    <th className="px-6 py-4 font-bold text-muted-foreground uppercase tracking-wider text-xs text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border bg-card">
+                  {chartData.map((row) => {
+                    const isUp = row.current_val >= row.previous_val;
+                    return (
+                      <tr key={row.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-6 py-4 font-bold text-foreground">{row.month}</td>
+                        <td className="px-6 py-4 text-foreground font-mono">${row.current_val?.toLocaleString()}</td>
+                        <td className="px-6 py-4 text-muted-foreground font-mono">${row.previous_val?.toLocaleString()}</td>
+                        <td className="px-6 py-4 text-right">
+                          {isUp ? (
+                            <span className="inline-flex items-center gap-1 text-xs font-bold text-success"><TrendingUp className="w-3.5 h-3.5" /> Hit</span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-xs font-bold text-destructive">Miss</span>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         </motion.div>
       </div>
