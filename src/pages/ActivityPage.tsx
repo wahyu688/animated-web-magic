@@ -1,12 +1,17 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { AtSign, AlertTriangle, Upload, CheckCircle, GitBranch, ArrowDown, Check, Send, X, Calendar, Users, Tag } from "lucide-react";
+import { AtSign, AlertTriangle, Upload, CheckCircle, GitBranch, ArrowDown, Check, Send, X, Calendar, Users, Tag, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { supabase } from "../lib/supabase";
 
-// --- KOMPONEN MODAL TICKET (Mirip TaskSlideover) ---
+// --- PETA IKON ---
+const IconMap: Record<string, any> = {
+  AtSign, AlertTriangle, Upload, CheckCircle, GitBranch
+};
+
+// --- KOMPONEN MODAL TICKET ---
 function TicketSlideover({ open, onClose, ticketData }: { open: boolean, onClose: () => void, ticketData: any }) {
   if (!ticketData) return null;
-  
   return (
     <AnimatePresence>
       {open && (
@@ -15,20 +20,20 @@ function TicketSlideover({ open, onClose, ticketData }: { open: boolean, onClose
           <motion.div initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ type: "spring", damping: 30, stiffness: 300 }} className="fixed right-0 top-0 z-50 h-full w-full max-w-md bg-card border-l border-border shadow-card-hover flex flex-col">
             <div className="flex items-center justify-between p-6 border-b border-border">
               <div className="flex items-center gap-3">
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide bg-primary/10 text-primary">TICKET-204</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide bg-primary/10 text-primary">TICKET-{ticketData.id.slice(0,4).toUpperCase()}</span>
               </div>
               <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors p-1"><X className="h-5 w-5" /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
-              <h2 className="text-2xl font-bold text-foreground">{ticketData.target}</h2>
+              <h2 className="text-2xl font-bold text-foreground">{ticketData.target || ticketData.action}</h2>
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/50"><Tag className="h-4 w-4 text-muted-foreground" /><div><p className="text-[10px] text-muted-foreground uppercase">Status</p><p className="text-sm font-semibold text-warning">In Review</p></div></div>
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/50"><Users className="h-4 w-4 text-muted-foreground" /><div><p className="text-[10px] text-muted-foreground uppercase">Assignee</p><p className="text-sm text-foreground">{ticketData.user}</p></div></div>
+                <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/50"><Users className="h-4 w-4 text-muted-foreground" /><div><p className="text-[10px] text-muted-foreground uppercase">Assignee</p><p className="text-sm text-foreground">{ticketData.user || "System"}</p></div></div>
               </div>
               <div className="space-y-3">
                 <h3 className="text-lg font-bold text-foreground">Original Message</h3>
                 <div className="p-4 rounded-xl bg-muted border border-border text-sm text-foreground italic">
-                  {ticketData.message}
+                  {ticketData.message || "No additional message provided."}
                 </div>
               </div>
             </div>
@@ -39,132 +44,74 @@ function TicketSlideover({ open, onClose, ticketData }: { open: boolean, onClose
   );
 }
 
-// --- DATA AWAL ---
-const initialNotifications = [
-  {
-    id: 1,
-    type: "mention",
-    user: "Sarah Chen",
-    action: 'mentioned you in',
-    target: "Q3 Design Review",
-    message: '"Great work on the dashboard! Can we adjust the border radius on the main card?"',
-    time: "12 min ago",
-    unread: true,
-    icon: AtSign,
-    iconBg: "bg-primary/10 text-primary",
-    initials: "SC",
-    replies: [] // Tambahan array untuk menyimpan balasan
-  },
-  {
-    id: 2,
-    type: "warning",
-    user: "",
-    action: "Deployment Warning",
-    target: "",
-    message: 'Build #4928 completed with warnings on environment staging.',
-    time: "45 min ago",
-    unread: true,
-    icon: AlertTriangle,
-    iconBg: "bg-warning/10 text-warning",
-    initials: "",
-  },
-  {
-    id: 3,
-    type: "upload",
-    user: "Marcus Johnson",
-    action: "added 3 new assets to",
-    target: "Marketing Campaign",
-    message: "",
-    time: "2 hrs ago",
-    unread: false,
-    icon: Upload,
-    iconBg: "bg-violet-100 text-violet-600",
-    initials: "MJ",
-    files: ["JPG", "PNG", "FIG"],
-  },
-  {
-    id: 4,
-    type: "success",
-    user: "",
-    action: "Database Backup Successful",
-    target: "",
-    message: "Weekly automated backup completed. Size: 24.5 GB.",
-    time: "Yesterday 9:00 AM",
-    unread: false,
-    icon: CheckCircle,
-    iconBg: "bg-success/10 text-success",
-    initials: "",
-  },
-  {
-    id: 5,
-    type: "invite",
-    user: "Elena Rodriguez",
-    action: "invited you to",
-    target: "Q4 Roadmap Planning",
-    message: "",
-    time: "Yesterday 2:30 PM",
-    unread: true, 
-    icon: AtSign,
-    iconBg: "bg-primary/10 text-primary",
-    initials: "ER",
-    hasAction: true,
-  },
-  {
-    id: 6,
-    type: "commit",
-    user: "Alex Kim",
-    action: "merged 4 commits into",
-    target: "main",
-    message: "8f29a1c... Fix: login redirect issue",
-    time: "Yesterday 11:15 AM",
-    unread: false,
-    icon: GitBranch,
-    iconBg: "bg-muted text-muted-foreground",
-    initials: "AK",
-  },
-];
-
-const olderActivity = [
-  {
-    id: 7,
-    type: "success",
-    user: "System",
-    action: "Weekly Report Generated",
-    target: "",
-    message: "Your weekly performance report is ready to download.",
-    time: "Oct 22, 10:00 AM",
-    unread: false,
-    icon: CheckCircle,
-    iconBg: "bg-success/10 text-success",
-    initials: "",
-  },
-  {
-    id: 8,
-    type: "mention",
-    user: "David Chen",
-    action: "commented on",
-    target: "API Documentation",
-    message: '"Looks good, but we need to add the rate limiting details."',
-    time: "Oct 21, 3:45 PM",
-    unread: false,
-    icon: AtSign,
-    iconBg: "bg-primary/10 text-primary",
-    initials: "DC",
-    replies: []
-  }
-];
-
 export default function ActivityPage() {
-  const [notifications, setNotifications] = useState<any[]>(initialNotifications);
+  const { toast } = useToast();
+  
+  // --- DATABASE STATES ---
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // --- UI STATES ---
   const [activeTab, setActiveTab] = useState<"All Activity" | "Mentions" | "System">("All Activity");
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasLoadedMore, setHasLoadedMore] = useState(false);
-  const { toast } = useToast();
-
-  // States untuk Fitur Baru (Reply & View Ticket)
-  const [replyingTo, setReplyingTo] = useState<number | null>(null);
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
   const [viewingTicket, setViewingTicket] = useState<any | null>(null);
+
+  // --- FETCH & REAL-TIME SUPABASE ---
+  useEffect(() => {
+    const fetchNotifications = async () => {
+      setIsLoading(true);
+      const { data, error } = await supabase.from('notifications').select('*').order('created_at', { ascending: false });
+      
+      if (error) console.error("Error fetching notifications:", error);
+      else if (data) {
+        // Map DB response to UI expected format
+        const formatted = data.map(n => ({
+          id: n.id, type: n.type, user: n.user_name, action: n.action, target: n.target,
+          message: n.message, time: n.time, unread: n.unread, icon: IconMap[n.icon_name] || CheckCircle,
+          iconBg: n.icon_bg, initials: n.initials, hasAction: n.has_action,
+          files: n.files || [], replies: n.replies || []
+        }));
+        setNotifications(formatted);
+      }
+      setIsLoading(false);
+    };
+
+    fetchNotifications();
+
+    const channel = supabase.channel('activity-room')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, (payload) => {
+        setNotifications((current) => {
+          if (payload.eventType === 'INSERT') {
+            const newN = payload.new;
+            const formatted = {
+              id: newN.id, type: newN.type, user: newN.user_name, action: newN.action, target: newN.target,
+              message: newN.message, time: newN.time, unread: newN.unread, icon: IconMap[newN.icon_name] || CheckCircle,
+              iconBg: newN.icon_bg, initials: newN.initials, hasAction: newN.has_action,
+              files: newN.files || [], replies: newN.replies || []
+            };
+            return [formatted, ...current];
+          }
+          if (payload.eventType === 'DELETE') return current.filter(n => n.id !== payload.old.id);
+          if (payload.eventType === 'UPDATE') {
+            const upN = payload.new;
+            const formatted = {
+              id: upN.id, type: upN.type, user: upN.user_name, action: upN.action, target: upN.target,
+              message: upN.message, time: upN.time, unread: upN.unread, icon: IconMap[upN.icon_name] || CheckCircle,
+              iconBg: upN.icon_bg, initials: upN.initials, hasAction: upN.has_action,
+              files: upN.files || [], replies: upN.replies || []
+            };
+            return current.map(n => n.id === upN.id ? formatted : n);
+          }
+          return current;
+        });
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   // --- LOGIKA FILTERING ---
   const filteredNotifications = useMemo(() => {
@@ -175,55 +122,68 @@ export default function ActivityPage() {
     });
   }, [notifications, activeTab]);
 
-  const unreadMentionsCount = notifications.filter(
-    (n) => (n.type === "mention" || n.type === "invite") && n.unread
-  ).length;
+  const unreadMentionsCount = notifications.filter((n) => (n.type === "mention" || n.type === "invite") && n.unread).length;
 
-  // --- HANDLERS ---
-  const handleMarkAllRead = () => {
+  // --- HANDLERS (TERSAMBUNG KE DATABASE) ---
+  const handleMarkAllRead = async () => {
+    // Update lokal dulu (Optimistic UI)
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
     toast({ title: "All marked as read", description: "Your activity feed is all caught up." });
+    
+    // Kirim ke server
+    await supabase.from('notifications').update({ unread: false }).eq('unread', true);
   };
 
-  const handleItemClick = (id: number) => {
-    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, unread: false } : n)));
+  const handleItemClick = async (id: string) => {
+    const target = notifications.find(n => n.id === id);
+    if (target && target.unread) {
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, unread: false } : n)));
+      await supabase.from('notifications').update({ unread: false }).eq('id', id);
+    }
   };
 
   const handleLoadMore = () => {
     setIsLoadingMore(true);
+    // Simulasi load older data
     setTimeout(() => {
-      setNotifications((prev) => [...prev, ...olderActivity]);
       setIsLoadingMore(false);
       setHasLoadedMore(true);
+      toast({ title: "End of feed", description: "No older activities found in the database." });
     }, 1000);
   };
 
-  // Handler Reply
-  const handleOpenReply = (e: React.MouseEvent, id: number) => {
+  // Handler Reply (Simpan ke kolom JSONB replies di DB)
+  const handleOpenReply = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    setReplyingTo(replyingTo === id ? null : id); // Toggle form
+    setReplyingTo(replyingTo === id ? null : id);
     setReplyText("");
   };
 
-  const handleSendReply = (e: React.MouseEvent, id: number) => {
+  const handleSendReply = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    if (replyText.trim()) {
-      setNotifications(prev => prev.map(n => {
-        if (n.id === id) {
-          return {
-            ...n,
-            replies: [...(n.replies || []), { text: replyText, time: "Just now" }]
-          };
-        }
-        return n;
-      }));
-      setReplyingTo(null);
-      setReplyText("");
+    if (!replyText.trim()) return;
+
+    const targetNotif = notifications.find(n => n.id === id);
+    if (!targetNotif) return;
+
+    const newReply = { text: replyText, time: "Just now" };
+    const updatedReplies = [...(targetNotif.replies || []), newReply];
+
+    // Optimistic UI update
+    setNotifications(prev => prev.map(n => n.id === id ? { ...n, replies: updatedReplies } : n));
+    setReplyingTo(null);
+    setReplyText("");
+    
+    // Simpan ke database
+    const { error } = await supabase.from('notifications').update({ replies: updatedReplies }).eq('id', id);
+    
+    if (error) {
+      toast({ title: "Error", description: "Gagal mengirim balasan.", variant: "destructive" });
+    } else {
       toast({ title: "Reply sent", description: "Your comment has been posted successfully." });
     }
   };
 
-  // Handler View Ticket
   const handleViewTicket = (e: React.MouseEvent, notification: any) => {
     e.stopPropagation();
     setViewingTicket(notification);
@@ -231,7 +191,14 @@ export default function ActivityPage() {
   };
 
   return (
-    <div className="p-6 lg:p-10 max-w-3xl mx-auto">
+    <div className="p-6 lg:p-10 max-w-3xl mx-auto relative">
+      
+      {isLoading && (
+        <div className="absolute top-10 right-10 z-10 flex items-center justify-center">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        </div>
+      )}
+
       {/* Header */}
       <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -249,7 +216,7 @@ export default function ActivityPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-6 border-b border-border mb-6 text-sm relative">
+      <div className="flex gap-6 border-b border-border mb-6 text-sm relative overflow-x-auto whitespace-nowrap">
         {(["All Activity", "Mentions", "System"] as const).map((tab) => (
           <button
             key={tab}
@@ -272,12 +239,12 @@ export default function ActivityPage() {
       <motion.div layout className="bg-card rounded-2xl shadow-card border border-border overflow-hidden">
         <div className="px-6 pt-6 pb-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {activeTab === "All Activity" ? "Today" : activeTab}
+            {activeTab === "All Activity" ? "Recent" : activeTab}
           </h3>
         </div>
 
         <AnimatePresence mode="popLayout">
-          {filteredNotifications.length === 0 ? (
+          {filteredNotifications.length === 0 && !isLoading ? (
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-8 text-center text-muted-foreground text-sm">
               No activities found for this category.
             </motion.div>
@@ -294,7 +261,9 @@ export default function ActivityPage() {
                   {n.initials ? (
                     <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold ring-2 ring-card">{n.initials}</div>
                   ) : (
-                    <div className={`w-10 h-10 rounded-full ${n.iconBg} flex items-center justify-center ring-2 ring-card`}><n.icon className="h-5 w-5" /></div>
+                    <div className={`w-10 h-10 rounded-full ${n.iconBg} flex items-center justify-center ring-2 ring-card`}>
+                      {n.icon && <n.icon className="h-5 w-5" />}
+                    </div>
                   )}
                 </div>
                 
@@ -356,7 +325,7 @@ export default function ActivityPage() {
       </motion.div>
 
       {/* Load More Button */}
-      {!hasLoadedMore && (
+      {!hasLoadedMore && notifications.length > 0 && (
         <div className="mt-8 text-center pb-4">
           <button onClick={handleLoadMore} disabled={isLoadingMore} className="text-sm text-muted-foreground hover:text-primary font-medium transition-colors flex items-center justify-center gap-2 mx-auto disabled:opacity-50">
             {isLoadingMore ? <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" /> : <ArrowDown className="h-4 w-4" />}
