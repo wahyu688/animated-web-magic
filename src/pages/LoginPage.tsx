@@ -40,10 +40,9 @@ function FloatingAlert({ alert, onClose }: { alert: { type: 'success' | 'error',
   );
 }
 
-const [firstName, setFirstName] = useState("");
-const [lastName, setLastName] = useState("");
-
 export default function LoginPage() {
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
