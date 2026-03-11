@@ -1,24 +1,24 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence, Variants } from "framer-motion";
-import { TrendingUp, TrendingDown, Users, DollarSign, Clock, BarChart3, ArrowUpRight, Minus, LogOut, Loader2 } from "lucide-react";
+import { TrendingUp, TrendingDown, Users, DollarSign, Clock, BarChart3, ArrowUpRight, Minus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
 const cardVariants = {
-hidden: { opacity: 0, y: 20 },
-visible: (i: number) => ({
-opacity: 1,
-y: 0,
-transition: {
-delay: i * 0.1,
-duration: 0.4,
-ease: "easeOut"
-}
-})
+  hidden: { opacity: 0, y: 20 },
+  visible: (i: number) => ({
+    opacity: 1,
+    y: 0,
+    transition: {
+      delay: i * 0.1,
+      duration: 0.4,
+      ease: "easeOut"
+    }
+  })
 } as Variants;
 
-// --- FUNGSI MATEMATIKA BEZIER CURVE (Didaur ulang dari Analytics) ---
+// --- FUNGSI MATEMATIKA BEZIER CURVE ---
 const generateSmoothPath = (data: any[], key: string, width: number, height: number, maxVal: number) => {
   if (!data || data.length === 0) return { path: "", points: [] };
   
@@ -28,7 +28,6 @@ const generateSmoothPath = (data: any[], key: string, width: number, height: num
 
   data.forEach((d, i) => {
     const x = i * xStep;
-    // Padding atas agar tidak nabrak atap (dikali 0.85)
     const y = height - (d[key] / maxVal) * (height * 0.85); 
     
     points.push({ cx: x, cy: y, val: d[key], label: d.month });
@@ -61,23 +60,32 @@ export default function DashboardPage() {
   });
   const [topPages, setTopPages] = useState<any[]>([]);
   const [trafficSources, setTrafficSources] = useState<any[]>([]);
-  const [chartRawData, setChartRawData] = useState<any[]>([]); // Data Grafik Dinamis
+  const [chartRawData, setChartRawData] = useState<any[]>([]);
   const [isLoadingDB, setIsLoadingDB] = useState(true);
 
   const { toast } = useToast();
   const navigate = useNavigate();
 
+  // 1. Cek User Session
+  useEffect(() => {
+    const checkUser = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) navigate("/login");
+      else setUserEmail(session.user.email || "User");
+    };
+    checkUser();
+  }, [navigate]);
+
+  // 2. Fetch Data & Real-Time Listener (CUKUP 1 USE-EFFECT SAJA)
   useEffect(() => {
     if (!userEmail) return;
 
-    // Fungsi untuk menarik data dari Supabase
     const fetchDashboardInfo = async () => {
-      // Hilangkan setIsLoadingDB(true) di sini agar saat Real-Time update, layar tidak kedap-kedip loading
       try {
         const [pagesRes, trafficRes, kpiRes, chartRes] = await Promise.all([
           supabase.from('top_pages').select('*').order('views', { ascending: false }),
           supabase.from('traffic_sources').select('*').order('pct', { ascending: false }),
-          supabase.from('dashboard_kpis').select('*').limit(1).single(),
+          supabase.from('dashboard_kpis').select('*').limit(1).maybeSingle(), // <--- INI SUDAH DIGANTI maybeSingle()
           supabase.from('chart_data').select('*').order('sort_order', { ascending: true })
         ]);
 
@@ -85,76 +93,20 @@ export default function DashboardPage() {
         if (trafficRes.data) setTrafficSources(trafficRes.data);
         if (kpiRes.data) {
           setKpiData({
-            revenue: kpiRes.data.total_revenue, revenue_change: kpiRes.data.revenue_change || "0%", revenue_trend: kpiRes.data.revenue_trend || "stable",
-            users: kpiRes.data.active_users, users_change: kpiRes.data.users_change || "0%", users_trend: kpiRes.data.users_trend || "stable",
-            session: kpiRes.data.avg_session, session_change: kpiRes.data.session_change || "0%", session_trend: kpiRes.data.session_trend || "stable",
-            churn: kpiRes.data.churn_rate, churn_change: kpiRes.data.churn_change || "0%", churn_trend: kpiRes.data.churn_trend || "stable"
-          });
-        }
-        if (chartRes.data) setChartRawData(chartRes.data);
-
-      } catch (error) {
-        console.error("Gagal menarik data:", error);
-      } finally {
-        setIsLoadingDB(false);
-      }
-    };
-
-    // 1. Tarik data saat halaman pertama kali dibuka
-    fetchDashboardInfo();
-
-    const channel = supabase.channel('dashboard-live-updates')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'traffic_sources' }, () => {
-        fetchDashboardInfo(); // Tarik data baru diam-diam di latar belakang
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'top_pages' }, () => {
-        fetchDashboardInfo();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'dashboard_kpis' }, () => {
-        fetchDashboardInfo();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chart_data' }, () => {
-        fetchDashboardInfo();
-      })
-      .subscribe();
-
-    // Bersihkan saluran saat user pindah halaman
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [userEmail]);
-
-  useEffect(() => {
-    if (!userEmail) return;
-
-    const fetchDashboardInfo = async () => {
-      setIsLoadingDB(true);
-      try {
-        const [pagesRes, trafficRes, kpiRes, chartRes] = await Promise.all([
-          supabase.from('top_pages').select('*').order('views', { ascending: false }),
-          supabase.from('traffic_sources').select('*').order('pct', { ascending: false }),
-          supabase.from('dashboard_kpis').select('*').limit(1).single(),
-          supabase.from('chart_data').select('*').order('sort_order', { ascending: true }) // Ambil data grafik!
-        ]);
-
-        if (pagesRes.data) setTopPages(pagesRes.data);
-        if (trafficRes.data) setTrafficSources(trafficRes.data);
-        if (kpiRes.data) {
-          setKpiData({
-            revenue: kpiRes.data.total_revenue,
-            revenue_change: kpiRes.data.revenue_change || "0%",
+            revenue: kpiRes.data.total_revenue || "$0", 
+            revenue_change: kpiRes.data.revenue_change || "0%", 
             revenue_trend: kpiRes.data.revenue_trend || "stable",
             
-            users: kpiRes.data.active_users,
-            users_change: kpiRes.data.users_change || "0%",
+            users: kpiRes.data.active_users || "0", 
+            users_change: kpiRes.data.users_change || "0%", 
             users_trend: kpiRes.data.users_trend || "stable",
             
-            session: kpiRes.data.avg_session,
-            session_change: kpiRes.data.session_change || "0%",
+            session: kpiRes.data.avg_session || "0", 
+            session_change: kpiRes.data.session_change || "0%", 
             session_trend: kpiRes.data.session_trend || "stable",
             
-            churn: kpiRes.data.churn_rate,
-            churn_change: kpiRes.data.churn_change || "0%",
+            churn: kpiRes.data.churn_rate || "0%", 
+            churn_change: kpiRes.data.churn_change || "0%", 
             churn_trend: kpiRes.data.churn_trend || "stable"
           });
         }
@@ -167,18 +119,31 @@ export default function DashboardPage() {
       }
     };
 
+    // Tarik data saat halaman dibuka
     fetchDashboardInfo();
+
+    // Pasang Pendengar Real-Time
+    const channel = supabase.channel('dashboard-live-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'traffic_sources' }, fetchDashboardInfo)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'top_pages' }, fetchDashboardInfo)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dashboard_kpis' }, fetchDashboardInfo)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chart_data' }, fetchDashboardInfo)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [userEmail]);
 
-  // --- MENGHITUNG KORDINAT SVG DINAMIS UNTUK DASHBOARD ---
+  // --- MENGHITUNG KORDINAT SVG DINAMIS ---
   const maxChartValue = Math.max(
-    ...chartRawData.map(d => d.current_val), 
-    ...chartRawData.map(d => d.previous_val), 
+    ...chartRawData.map(d => d.current_val || 0), 
+    ...chartRawData.map(d => d.previous_val || 0), 
     1 
   );
 
   const width = 1200;
-  const height = 280; // Dashboard grafiknya sedikit lebih pendek dari Analytics (280px vs 350px)
+  const height = 280;
 
   const currentYearGraph = generateSmoothPath(chartRawData, 'current_val', width, height, maxChartValue);
   const previousYearGraph = generateSmoothPath(chartRawData, 'previous_val', width, height, maxChartValue);
@@ -240,7 +205,7 @@ export default function DashboardPage() {
       {/* Chart + Traffic */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        {/* Revenue Chart (KINI DINAMIS!) */}
+        {/* Revenue Chart */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="lg:col-span-2 bg-card rounded-2xl border border-border shadow-card p-6 lg:p-8">
           <div className="flex justify-between items-center mb-8">
             <div>
@@ -263,6 +228,10 @@ export default function DashboardPage() {
             <div className="flex justify-center items-center h-[280px]">
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
+          ) : chartRawData.length === 0 ? (
+            <div className="flex justify-center items-center h-[280px] text-muted-foreground text-sm border-2 border-dashed border-border rounded-xl">
+              Tidak ada data grafik. Silakan isi di menu Financial.
+            </div>
           ) : (
             <div className="relative w-full h-[280px]">
               <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
@@ -273,17 +242,14 @@ export default function DashboardPage() {
                   </linearGradient>
                 </defs>
                 
-                {/* Garis Horizontal Latar Belakang */}
                 {[0, 70, 140, 210, 280].map((y) => (
                   <line key={`line-${y}`} x1="0" y1={y} x2="1200" y2={y} stroke="hsl(214 20% 92%)" strokeWidth="1" />
                 ))}
                 
-                {/* Grafik Tahun Lalu */}
                 {previousYearGraph.path && (
                   <motion.path d={previousYearGraph.path} fill="none" stroke="hsl(214 20% 85%)" strokeWidth="2" strokeDasharray="6,6" strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.5 }} />
                 )}
                 
-                {/* Grafik Tahun Ini */}
                 {currentYearGraph.path && (
                   <>
                     <path d={`${currentYearGraph.path} V${height} H0 Z`} fill="url(#areaGradDashboard)" />
@@ -291,7 +257,6 @@ export default function DashboardPage() {
                   </>
                 )}
 
-                {/* Titik Interaktif Saat Di-Hover */}
                 {currentYearGraph.points.map((pt, index) => (
                   <g key={index} onMouseEnter={() => setHoveredPoint(index)} onMouseLeave={() => setHoveredPoint(null)} className="cursor-pointer">
                     <circle cx={pt.cx} cy={pt.cy} r={hoveredPoint === index ? "8" : "0"} fill="hsl(222 80% 45%)" stroke="white" strokeWidth="3" className="transition-all duration-200" />
@@ -320,6 +285,8 @@ export default function DashboardPage() {
           <h2 className="text-lg font-bold text-foreground mb-6">Traffic Sources</h2>
           {isLoadingDB ? (
             <div className="flex justify-center items-center h-48"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>
+          ) : trafficSources.length === 0 ? (
+            <p className="text-muted-foreground text-sm text-center mt-10">Data kosong</p>
           ) : (
             <div className="space-y-5">
               {trafficSources.map((s, i) => (
@@ -357,6 +324,8 @@ export default function DashboardPage() {
             <tbody className="divide-y divide-border">
               {isLoadingDB ? (
                  <tr><td colSpan={5} className="px-6 py-12 text-center text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" /></td></tr>
+              ) : topPages.length === 0 ? (
+                 <tr><td colSpan={5} className="px-6 py-12 text-center text-muted-foreground text-sm">Belum ada data Top Pages.</td></tr>
               ) : topPages.map((page) => (
                 <tr key={page.id} className="hover:bg-muted/50 transition-colors">
                   <td className="px-6 py-4 font-medium text-foreground font-mono text-sm">{page.name}</td>
