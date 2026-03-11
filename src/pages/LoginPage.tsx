@@ -4,30 +4,35 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Lock, ArrowRight, Loader2, Github, Chrome, CheckCircle2, AlertTriangle, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
-// --- KOMPONEN POP-UP NOTIFIKASI KUSTOM ---
+// --- KOMPONEN POP-UP NOTIFIKASI (Diperbarui: Posisi Kanan Atas & Warna Teks Aman) ---
 function FloatingAlert({ alert, onClose }: { alert: { type: 'success' | 'error', message: string } | null, onClose: () => void }) {
   return (
     <AnimatePresence>
       {alert && (
         <motion.div
-          initial={{ opacity: 0, y: -50, scale: 0.9 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -20, scale: 0.9 }}
+          // Animasi meluncur dari kanan
+          initial={{ opacity: 0, x: 50, scale: 0.9 }}
+          animate={{ opacity: 1, x: 0, scale: 1 }}
+          exit={{ opacity: 0, x: 20, scale: 0.9 }}
           transition={{ type: "spring", stiffness: 400, damping: 25 }}
-          className={`fixed top-8 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border ${
+          // Posisi di kanan atas (top-8 right-8)
+          className={`fixed top-8 right-8 z-[100] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl border bg-white dark:bg-slate-900 ${
             alert.type === 'success' 
-              ? 'bg-success/10 border-success/20 text-success-foreground' 
-              : 'bg-destructive/10 border-destructive/20 text-destructive-foreground'
-          } backdrop-blur-md bg-white/90 dark:bg-slate-900/90`}
+              ? 'border-green-200' 
+              : 'border-red-200'
+          }`}
         >
           {alert.type === 'success' ? (
-            <CheckCircle2 className={`w-5 h-5 ${alert.type === 'success' ? 'text-success' : ''}`} />
+            <CheckCircle2 className="w-5 h-5 text-green-600" />
           ) : (
-            <AlertTriangle className={`w-5 h-5 ${alert.type === 'error' ? 'text-destructive' : ''}`} />
+            <AlertTriangle className="w-5 h-5 text-red-500" />
           )}
-          <span className="text-sm font-bold tracking-wide">{alert.message}</span>
-          <button onClick={onClose} className="ml-2 p-1 hover:bg-black/5 rounded-full transition-colors">
-            <X className="w-4 h-4 opacity-50 hover:opacity-100" />
+          {/* Warna teks dipaksa gelap/terang agar kontras dengan background */}
+          <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
+            {alert.message}
+          </span>
+          <button onClick={onClose} className="ml-4 p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
+            <X className="w-4 h-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" />
           </button>
         </motion.div>
       )}
@@ -42,12 +47,9 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   
-  // State untuk Notifikasi Pop-up
   const [alert, setAlert] = useState<{ type: 'success' | 'error', message: string } | null>(null);
-  
   const navigate = useNavigate();
 
-  // Fungsi untuk memunculkan alert dan otomatis hilang dalam 4 detik
   const showAlert = (type: 'success' | 'error', message: string) => {
     setAlert({ type, message });
     setTimeout(() => setAlert(null), 4000);
@@ -63,7 +65,7 @@ export default function LoginPage() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAlert(null); // Bersihkan alert sebelumnya
+    setAlert(null); 
 
     if (!email || !password) {
       showAlert('error', "Please enter your email and password.");
@@ -78,7 +80,7 @@ export default function LoginPage() {
         if (error) throw error;
         
         showAlert('success', "Welcome back! Redirecting...");
-        setTimeout(() => navigate("/dashboard"), 1000); // Beri jeda 1 detik agar pop-up terlihat
+        setTimeout(() => navigate("/dashboard"), 1000); 
         
       } else {
         const { data, error } = await supabase.auth.signUp({ email, password });
@@ -88,7 +90,6 @@ export default function LoginPage() {
            showAlert('error', "This email is already registered.");
         } else {
            setIsSuccess(true);
-           // Alert tidak perlu karena UI akan berubah menjadi mode "Check Email"
         }
       }
     } catch (error: any) {
@@ -105,7 +106,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex bg-background-light relative">
       
-      {/* --- POP-UP NOTIFIKASI KUSTOM --- */}
+      {/* POP-UP MEMANGGIL KOMPONEN DI ATAS */}
       <FloatingAlert alert={alert} onClose={() => setAlert(null)} />
 
       {/* --- BAGIAN KIRI: BRANDING --- */}
