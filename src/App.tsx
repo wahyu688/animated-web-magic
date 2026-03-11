@@ -56,10 +56,10 @@ export default function App() {
         }
 
         { <Route 
-          path="/calendar" 
+          path="/team" 
           element={
             <DashboardLayout>
-              <CalendarPage />
+              <TeamPage />
             </DashboardLayout>
           } 
         /> 
