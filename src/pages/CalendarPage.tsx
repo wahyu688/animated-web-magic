@@ -1,6 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ChevronLeft, ChevronRight, Plus, Clock, X, Calendar as CalendarIcon, AlignLeft, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Clock, X, Calendar as CalendarIcon, AlignLeft, Trash2, Loader2 } from "lucide-react";
+import { supabase } from "../lib/supabase";
+import { useToast } from "@/hooks/use-toast";
 
 // --- TYPES ---
 interface CalendarEvent {
@@ -10,126 +12,126 @@ interface CalendarEvent {
   duration: number; // in hours
   color: string;
   description?: string;
-  dateStr: string; // FORMAT: "YYYY-MM-DD" -> INI KUNCI PERBAIKANNYA
+  dateStr: string; // FORMAT: "YYYY-MM-DD"
 }
 
 // --- CALENDAR UTILS ---
-// Menggunakan bulan Oktober 2023 sebagai base (sesuai UI)
-const CURRENT_YEAR = 2023;
-const CURRENT_MONTH = 9; // 0-indexed, jadi 9 = October
-
 const daysOfWeek = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const fullDaysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-// Generate hari untuk kalender bulan (35 kotak)
 const generateCalendarDays = () => {
   const days = [];
-  // 3 hari terakhir di bulan September (karena Oct mulai hari minggu)
   for (let i = 28; i <= 30; i++) {
     days.push({ day: i, month: 8, prev: true, dateStr: `2023-09-${String(i).padStart(2, '0')}` });
   }
-  // 31 hari di bulan Oktober
   for (let i = 1; i <= 31; i++) {
     days.push({ day: i, month: 9, prev: false, dateStr: `2023-10-${String(i).padStart(2, '0')}` });
   }
-  // 1 hari pertama di bulan November (untuk melengkapi 35 grid)
   days.push({ day: 1, month: 10, prev: true, dateStr: `2023-11-01` });
   return days;
 };
 
 const calendarDays = generateCalendarDays();
-
-// --- MOCK DATA ---
-const initialUpcoming = [
-  { id: "u1", title: "Design System Sync", time: "10:00 AM", duration: 1, color: "bg-info", dateStr: "2023-10-24" },
-  { id: "u2", title: "Sprint Planning", time: "2:00 PM", duration: 1.5, color: "bg-primary", dateStr: "2023-10-25" },
-];
-
-const initialEvents: CalendarEvent[] = [
-  { id: "e1", title: "Team Standup", time: "09:00", duration: 1, color: "bg-primary", description: "Daily sync.", dateStr: "2023-10-23" },
-  { id: "e2", title: "Design Review", time: "10:00", duration: 2, color: "bg-info", description: "Dashboard mockups.", dateStr: "2023-10-24" },
-  { id: "e3", title: "Lunch & Learn", time: "12:00", duration: 1, color: "bg-success", dateStr: "2023-10-24" },
-  { id: "e4", title: "Sprint Planning", time: "14:00", duration: 2, color: "bg-warning", description: "Sprint 42.", dateStr: "2023-10-25" },
-  { id: "e5", title: "Client Call", time: "11:00", duration: 1, color: "bg-destructive", dateStr: "2023-10-26" },
-  { id: "e6", title: "Demo Day", time: "15:00", duration: 2, color: "bg-violet-500", dateStr: "2023-10-27" },
-];
-
 const hours = Array.from({ length: 10 }, (_, i) => `${String(i + 8).padStart(2, '0')}:00`);
 
 export default function CalendarPage() {
-  // --- STATES ---
-  // Default selected date: 2023-10-24
+  const { toast } = useToast();
   const [selectedDateStr, setSelectedDateStr] = useState("2023-10-24");
   const [viewMode, setViewMode] = useState<"Day" | "Week" | "Month">("Week");
   
-  // Data State (Sekarang array flat, difilter berdasarkan dateStr)
-  const [allEvents, setAllEvents] = useState<CalendarEvent[]>(initialEvents);
+  // --- DATABASE STATES ---
+  const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   
-  // Modal States
+  // --- MODAL STATES ---
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
   const [isFormModalOpen, setIsFormModalOpen] = useState(false);
   const [editingEventId, setEditingEventId] = useState<string | null>(null);
   
-  // Form States
+  // --- FORM STATES ---
   const [newEventTitle, setNewEventTitle] = useState("");
   const [newEventDateStr, setNewEventDateStr] = useState("2023-10-24");
   const [newEventTime, setNewEventTime] = useState("09:00");
   const [newEventDuration, setNewEventDuration] = useState(1);
   const [newEventColor, setNewEventColor] = useState("bg-primary");
 
+  // --- FETCH & REAL-TIME SUPABASE ---
+  useEffect(() => {
+    const fetchEvents = async () => {
+      setIsLoading(true);
+      const { data, error } = await supabase.from('calendar_events').select('*');
+      
+      if (error) {
+        console.error("Gagal menarik jadwal:", error);
+      } else if (data) {
+        // Mapping kolom DB (date_str) ke interface UI (dateStr)
+        const formatted = data.map((d: any) => ({
+          id: d.id,
+          title: d.title,
+          time: d.time,
+          duration: d.duration,
+          color: d.color,
+          description: d.description,
+          dateStr: d.date_str
+        }));
+        setAllEvents(formatted);
+      }
+      setIsLoading(false);
+    };
+
+    fetchEvents();
+
+    const channel = supabase.channel('calendar-room')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events' }, (payload) => {
+        setAllEvents((current) => {
+          if (payload.eventType === 'INSERT') {
+            const newEv = { ...payload.new, dateStr: payload.new.date_str };
+            return [...current, newEv as CalendarEvent];
+          }
+          if (payload.eventType === 'DELETE') {
+            return current.filter(e => e.id !== payload.old.id);
+          }
+          if (payload.eventType === 'UPDATE') {
+            const updatedEv = { ...payload.new, dateStr: payload.new.date_str };
+            return current.map(e => e.id === payload.new.id ? (updatedEv as CalendarEvent) : e);
+          }
+          return current;
+        });
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
   // --- DERIVED DATA ---
-  
-  // Mengambil hari dan tanggal untuk keperluan UI
   const getDayInfo = (dateStr: string) => {
     const dateObj = new Date(dateStr);
-    return {
-      dayNum: dateObj.getDate(),
-      dayName: fullDaysOfWeek[dateObj.getDay()],
-    };
+    return { dayNum: dateObj.getDate(), dayName: fullDaysOfWeek[dateObj.getDay()] };
   };
 
-  // Logika untuk menentukan tanggal-tanggal di minggu aktif (berdasarkan selectedDateStr)
   const currentWeekDays = useMemo(() => {
     const selectedDate = new Date(selectedDateStr);
-    const dayOfWeek = selectedDate.getDay(); // 0 (Sun) to 6 (Sat)
-    // Geser ke hari Senin (atau Minggu jika ingin week mulai hari Minggu)
-    // Di sini kita asumsikan minggu mulai hari Senin sesuai desain UI Anda:
+    const dayOfWeek = selectedDate.getDay();
     const diffToMonday = selectedDate.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
     
     const weekStart = new Date(selectedDate.setDate(diffToMonday));
     const week = [];
-    
     for (let i = 0; i < 7; i++) {
       const d = new Date(weekStart);
       d.setDate(d.getDate() + i);
-      week.push({
-        dateStr: d.toISOString().split('T')[0],
-        dayNum: d.getDate(),
-        dayName: fullDaysOfWeek[d.getDay()]
-      });
+      week.push({ dateStr: d.toISOString().split('T')[0], dayNum: d.getDate(), dayName: fullDaysOfWeek[d.getDay()] });
     }
     return week;
   }, [selectedDateStr]);
 
-  // Upcoming Events Dynamic
   const upcomingEvents = useMemo(() => {
     return [...allEvents]
-      .sort((a, b) => {
-        const dateA = new Date(`${a.dateStr}T${a.time}`).getTime();
-        const dateB = new Date(`${b.dateStr}T${b.time}`).getTime();
-        return dateA - dateB;
-      })
+      .sort((a, b) => new Date(`${a.dateStr}T${a.time}`).getTime() - new Date(`${b.dateStr}T${b.time}`).getTime())
+      .filter(e => new Date(`${e.dateStr}T${e.time}`).getTime() >= new Date("2023-10-23T00:00").getTime()) // Menampilkan dari tgl aktif ke depan
       .slice(0, 4);
   }, [allEvents]);
 
   // --- HANDLERS ---
-  const handleMiniCalendarClick = (dateStr: string) => {
-    setSelectedDateStr(dateStr);
-    // Jika tidak ingin langsung buka modal saat klik tanggal biasa, hapus bagian bawah ini.
-    // Tetapi Anda menyebutkan ingin add event dari klik sidebar, jadi kita pertahankan, 
-    // tapi kita beri tombol 'Create Event' utama untuk UI yang lebih baik.
-  };
-
   const handleOpenCreateForm = (specificDateStr?: string) => {
     setEditingEventId(null);
     setNewEventTitle("");
@@ -147,41 +149,58 @@ export default function CalendarPage() {
       setNewEventTime(selectedEvent.time);
       setNewEventDuration(selectedEvent.duration);
       setNewEventColor(selectedEvent.color);
-      
       setEditingEventId(selectedEvent.id);
       setSelectedEvent(null);
       setIsFormModalOpen(true);
     }
   };
 
-  const handleSaveEvent = () => {
-    if (newEventTitle.trim()) {
-      const updatedEvent: CalendarEvent = {
-        id: editingEventId || Date.now().toString(),
-        title: newEventTitle,
-        dateStr: newEventDateStr,
-        time: newEventTime,
-        duration: Number(newEventDuration),
-        color: newEventColor,
-        description: editingEventId ? "Updated manually by user." : "Created manually by user.",
-      };
+  const handleSaveEvent = async () => {
+    if (!newEventTitle.trim()) return;
 
-      setAllEvents(prev => {
-        const filtered = prev.filter(e => e.id !== editingEventId);
-        return [...filtered, updatedEvent];
-      });
+    const eventPayload = {
+      title: newEventTitle,
+      date_str: newEventDateStr,
+      time: newEventTime,
+      duration: Number(newEventDuration),
+      color: newEventColor,
+      description: "Managed via Xenith App Calendar.",
+    };
 
-      setIsFormModalOpen(false);
+    if (editingEventId) {
+      // UPDATE KE DB
+      const { error } = await supabase.from('calendar_events').update(eventPayload).eq('id', editingEventId);
+      if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+      else toast({ title: "Success", description: "Jadwal berhasil diperbarui." });
+    } else {
+      // INSERT KE DB
+      const { error } = await supabase.from('calendar_events').insert([eventPayload]);
+      if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+      else toast({ title: "Success", description: "Jadwal baru ditambahkan." });
     }
+
+    setIsFormModalOpen(false);
   };
 
-  const handleDeleteEvent = (id: string) => {
-    setAllEvents(prev => prev.filter(e => e.id !== id));
-    setSelectedEvent(null);
+  const handleDeleteEvent = async (id: string) => {
+    const { error } = await supabase.from('calendar_events').delete().eq('id', id);
+    if (error) {
+      toast({ title: "Error", description: "Gagal menghapus jadwal.", variant: "destructive" });
+    } else {
+      toast({ title: "Terhapus", description: "Jadwal berhasil dihapus dari sistem." });
+      setSelectedEvent(null);
+    }
   };
 
   return (
     <div className="flex flex-col lg:flex-row h-full overflow-hidden relative">
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="absolute inset-0 z-50 bg-background/50 backdrop-blur-sm flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      )}
+
       {/* --- SIDEBAR --- */}
       <aside className="w-full lg:w-72 border-b lg:border-b-0 lg:border-r border-border bg-card flex flex-col shrink-0 p-6 overflow-y-auto">
         <motion.button
@@ -209,11 +228,7 @@ export default function CalendarPage() {
             {calendarDays.map((d, i) => (
               <span
                 key={i}
-                onClick={() => {
-                  if(!d.prev) {
-                    handleMiniCalendarClick(d.dateStr);
-                  }
-                }}
+                onClick={() => { if(!d.prev) setSelectedDateStr(d.dateStr); }}
                 onDoubleClick={() => !d.prev && handleOpenCreateForm(d.dateStr)}
                 className={`py-1.5 rounded cursor-pointer transition-all ${
                   d.prev
@@ -299,7 +314,6 @@ export default function CalendarPage() {
           {/* VIEW: WEEK OR DAY */}
           {(viewMode === "Week" || viewMode === "Day") && (
             <>
-              {/* Day headers */}
               <div className={`grid ${viewMode === "Week" ? "grid-cols-7" : "grid-cols-1"} border-b border-border`}>
                 {(viewMode === "Week" ? currentWeekDays : currentWeekDays.filter(d => d.dateStr === selectedDateStr)).map((d) => (
                   <div key={d.dateStr} className={`text-center py-3 text-sm font-medium border-r border-border last:border-r-0 ${d.dateStr === selectedDateStr ? "text-primary bg-primary/5" : "text-muted-foreground"}`}>
@@ -309,7 +323,6 @@ export default function CalendarPage() {
                 ))}
               </div>
 
-              {/* Time grid */}
               <div className="relative" style={{ height: "600px" }}>
                 {hours.map((h, i) => (
                   <div key={h} className="absolute w-full border-t border-border/50 text-[10px] text-muted-foreground pl-2" style={{ top: `${i * 60}px` }}>
@@ -317,7 +330,6 @@ export default function CalendarPage() {
                   </div>
                 ))}
 
-                {/* Events overlay */}
                 <div className={`grid ${viewMode === "Week" ? "grid-cols-7" : "grid-cols-1"} h-full absolute inset-0 pl-10 pr-2`}>
                   {(viewMode === "Week" ? currentWeekDays : currentWeekDays.filter(d => d.dateStr === selectedDateStr)).map((day) => {
                     const dayEvents = allEvents.filter(e => e.dateStr === day.dateStr);
@@ -347,7 +359,7 @@ export default function CalendarPage() {
             </>
           )}
 
-          {/* VIEW: MONTH (Simplified Grid) */}
+          {/* VIEW: MONTH */}
           {viewMode === "Month" && (
             <div className="h-[600px] flex flex-col">
               <div className="grid grid-cols-7 border-b border-border bg-muted/20">
@@ -362,7 +374,7 @@ export default function CalendarPage() {
                   return (
                     <div 
                       key={i} 
-                      onClick={() => !d.prev && handleMiniCalendarClick(d.dateStr)}
+                      onClick={() => !d.prev && setSelectedDateStr(d.dateStr)}
                       onDoubleClick={() => !d.prev && handleOpenCreateForm(d.dateStr)}
                       className={`border-r border-b border-border/50 p-2 min-h-[100px] transition-colors hover:bg-muted/30 cursor-pointer overflow-hidden ${d.prev ? "bg-muted/10 text-muted-foreground/40" : "text-foreground"}`}
                     >
@@ -372,17 +384,13 @@ export default function CalendarPage() {
                       
                       <div className="mt-1 space-y-1">
                         {dayEvents.slice(0, 2).map((ev) => {
-                           // Menentukan kelas teks berdasarkan kelas latar belakang agar kontras
                            let textClass = "text-white"; 
-                           if (ev.color === "bg-warning" || ev.color === "bg-muted") {
-                             textClass = "text-slate-800"; // Gunakan teks gelap untuk background terang/kuning
-                           }
+                           if (ev.color === "bg-warning" || ev.color === "bg-muted") textClass = "text-slate-800"; 
 
                           return (
                             <div 
                               key={ev.id} 
                               onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }}
-                              // Menggunakan textClass yang dinamis dan memastikan styling solid
                               className={`${ev.color} ${textClass} text-[10px] font-bold px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity`}
                             >
                               {ev.time.split(":")[0]}:00 {ev.title}
@@ -470,8 +478,7 @@ export default function CalendarPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-1.5">Date</label>
-                    {/* Sekarang menggunakan input type="date" yang sesungguhnya */}
-                    <input type="date" min="2023-10-01" max="2023-10-31" value={newEventDateStr} onChange={(e) => setNewEventDateStr(e.target.value)} className="w-full bg-muted/50 border border-border focus:border-primary rounded-xl px-4 py-2.5 text-sm outline-none text-foreground" />
+                    <input type="date" min="2023-10-01" max="2023-11-01" value={newEventDateStr} onChange={(e) => setNewEventDateStr(e.target.value)} className="w-full bg-muted/50 border border-border focus:border-primary rounded-xl px-4 py-2.5 text-sm outline-none text-foreground" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-1.5">Time</label>

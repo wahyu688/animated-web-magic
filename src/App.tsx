@@ -3,6 +3,7 @@ import LoginPage from "./pages/LoginPage";
 import DashboardPage from "./pages/DashboardPage";
 import AnalyticsPage from "./pages/AnalyticsPage";
 import KanbanPage from "./pages/KanbanPage";
+import CalendarPage from "./pages/CalendarPage";
 import DashboardLayout from "./components/layout/DashboardLayout";
 
 export default function App() {
@@ -38,6 +39,16 @@ export default function App() {
           element={
             <DashboardLayout>
               <KanbanPage />
+            </DashboardLayout>
+          } 
+        /> 
+        }
+
+        { <Route 
+          path="/calendar" 
+          element={
+            <DashboardLayout>
+              <CalendarPage />
             </DashboardLayout>
           } 
         /> 
