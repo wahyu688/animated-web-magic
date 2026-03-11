@@ -9,6 +9,7 @@ import ActivityPage from "./pages/ActivityPage";
 import SettingsPage from "./pages/SettingsPage";
 import DashboardLayout from "./components/layout/DashboardLayout";
 import LandingPage from "./pages/LandingPage";
+import PricingPage from "./pages/PricingPage";
 
 export default function App() {
   return (
@@ -20,7 +21,7 @@ export default function App() {
         
         {/* Rute Privat (DashboardPage dimasukkan sebagai 'children' ke dalam Layout) */}
         <Route 
-          path="/" 
+          path="/dashboard" 
           element={
             <DashboardLayout>
               <DashboardPage />
@@ -84,6 +85,16 @@ export default function App() {
           element={
             <DashboardLayout>
               <SettingsPage />
+            </DashboardLayout>
+          } 
+        /> 
+        }
+
+        { <Route 
+          path="/pricing" 
+          element={
+            <DashboardLayout>
+              <PricingPage />
             </DashboardLayout>
           } 
         /> 
