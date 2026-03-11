@@ -170,7 +170,10 @@ export default function DashboardPage() {
           return current;
         });
       })
-      .subscribe();
+      .subscribe((status, err) => {
+        console.log("Status Koneksi Real-Time:", status);
+        if (err) console.error("Error Real-Time:", err);
+      });
 
     // Bersihkan saluran (unsubscribe) jika user pindah halaman agar tidak bocor memori
     return () => {
