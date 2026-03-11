@@ -29,7 +29,7 @@ export default function FinancialPage() {
       setIsLoading(true);
       try {
         const [kpiRes, chartRes] = await Promise.all([
-          supabase.from('dashboard_kpis').select('*').limit(1).single(),
+          supabase.from('dashboard_kpis').select('*').limit(1).maybeSingle(),
           supabase.from('chart_data').select('*').order('sort_order', { ascending: true })
         ]);
 
