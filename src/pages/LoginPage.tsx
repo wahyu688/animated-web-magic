@@ -15,7 +15,7 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // Cek jika user sudah login, langsung lempar ke dashboard
+  // Cek jika user sudah login, langsung arahkan ke dashboard
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -37,7 +37,7 @@ export default function LoginPage() {
 
     try {
       if (isLogin) {
-        // PROSES SIGN IN
+        // --- LOGIKA API SIGN IN (ASLI) ---
         const { error } = await supabase.auth.signInWithPassword({
           email,
           password,
@@ -46,10 +46,10 @@ export default function LoginPage() {
         if (error) throw error;
         
         toast({ title: "Welcome back!", description: "Berhasil masuk ke sistem." });
-        navigate("/dashboard"); // Langsung ke dashboard
+        navigate("/dashboard"); 
         
       } else {
-        // PROSES SIGN UP (Register)
+        // --- LOGIKA API SIGN UP (ASLI) ---
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
@@ -57,7 +57,7 @@ export default function LoginPage() {
 
         if (error) throw error;
 
-        // Jika Supabase mengharuskan verifikasi email
+        // Pengecekan standar jika email sudah terdaftar
         if (data.user && data.user.identities && data.user.identities.length === 0) {
            toast({ title: "Email taken", description: "Email ini sudah terdaftar.", variant: "destructive" });
         } else {
@@ -66,6 +66,7 @@ export default function LoginPage() {
         }
       }
     } catch (error: any) {
+      // Jika terjadi error (seperti error 500 SMTP), akan ditangkap dan ditampilkan di sini
       toast({ title: "Authentication Failed", description: error.message, variant: "destructive" });
     } finally {
       setIsLoading(false);
@@ -73,7 +74,7 @@ export default function LoginPage() {
   };
 
   const handleSocialLogin = (provider: string) => {
-    toast({ title: "Coming Soon", description: `Login dengan ${provider} belum dikonfigurasi di Supabase.` });
+    toast({ title: "Coming Soon", description: `Login dengan ${provider} belum dikonfigurasi di Supabase Anda.` });
   };
 
   return (
@@ -97,7 +98,7 @@ export default function LoginPage() {
           <span className="text-2xl font-bold tracking-tight">NEXUSFLOW</span>
         </Link>
 
-        {/* Testimonial / Copywriting */}
+        {/* Copywriting */}
         <div className="relative z-10 max-w-lg">
           <motion.h2 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="text-4xl font-black leading-tight mb-6">
             Scale your operations with intelligent precision.
