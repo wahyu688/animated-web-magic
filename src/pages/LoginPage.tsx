@@ -1,9 +1,39 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, Lock, ArrowRight, Loader2, Github, Chrome, CheckCircle2 } from "lucide-react";
+import { Mail, Lock, ArrowRight, Loader2, Github, Chrome, CheckCircle2, AlertTriangle, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
-import { useToast } from "@/hooks/use-toast";
+
+// --- KOMPONEN POP-UP NOTIFIKASI KUSTOM ---
+function FloatingAlert({ alert, onClose }: { alert: { type: 'success' | 'error', message: string } | null, onClose: () => void }) {
+  return (
+    <AnimatePresence>
+      {alert && (
+        <motion.div
+          initial={{ opacity: 0, y: -50, scale: 0.9 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -20, scale: 0.9 }}
+          transition={{ type: "spring", stiffness: 400, damping: 25 }}
+          className={`fixed top-8 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-5 py-3.5 rounded-2xl shadow-2xl border ${
+            alert.type === 'success' 
+              ? 'bg-success/10 border-success/20 text-success-foreground' 
+              : 'bg-destructive/10 border-destructive/20 text-destructive-foreground'
+          } backdrop-blur-md bg-white/90 dark:bg-slate-900/90`}
+        >
+          {alert.type === 'success' ? (
+            <CheckCircle2 className={`w-5 h-5 ${alert.type === 'success' ? 'text-success' : ''}`} />
+          ) : (
+            <AlertTriangle className={`w-5 h-5 ${alert.type === 'error' ? 'text-destructive' : ''}`} />
+          )}
+          <span className="text-sm font-bold tracking-wide">{alert.message}</span>
+          <button onClick={onClose} className="ml-2 p-1 hover:bg-black/5 rounded-full transition-colors">
+            <X className="w-4 h-4 opacity-50 hover:opacity-100" />
+          </button>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
 
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -12,24 +42,31 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   
+  // State untuk Notifikasi Pop-up
+  const [alert, setAlert] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  
   const navigate = useNavigate();
-  const { toast } = useToast();
 
-  // Cek jika user sudah login, langsung arahkan ke dashboard
+  // Fungsi untuk memunculkan alert dan otomatis hilang dalam 4 detik
+  const showAlert = (type: 'success' | 'error', message: string) => {
+    setAlert({ type, message });
+    setTimeout(() => setAlert(null), 4000);
+  };
+
   useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (session) {
-        navigate("/dashboard");
-      }
+      if (session) navigate("/dashboard");
     };
     checkUser();
   }, [navigate]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
+    setAlert(null); // Bersihkan alert sebelumnya
+
     if (!email || !password) {
-      toast({ title: "Error", description: "Mohon isi email dan password Anda.", variant: "destructive" });
+      showAlert('error', "Please enter your email and password.");
       return;
     }
 
@@ -37,58 +74,47 @@ export default function LoginPage() {
 
     try {
       if (isLogin) {
-        // --- LOGIKA API SIGN IN (ASLI) ---
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-        
+        const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
         
-        toast({ title: "Welcome back!", description: "Berhasil masuk ke sistem." });
-        navigate("/dashboard"); 
+        showAlert('success', "Welcome back! Redirecting...");
+        setTimeout(() => navigate("/dashboard"), 1000); // Beri jeda 1 detik agar pop-up terlihat
         
       } else {
-        // --- LOGIKA API SIGN UP (ASLI) ---
-        const { data, error } = await supabase.auth.signUp({
-          email,
-          password,
-        });
-
+        const { data, error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
 
-        // Pengecekan standar jika email sudah terdaftar
         if (data.user && data.user.identities && data.user.identities.length === 0) {
-           toast({ title: "Email taken", description: "Email ini sudah terdaftar.", variant: "destructive" });
+           showAlert('error', "This email is already registered.");
         } else {
            setIsSuccess(true);
-           toast({ title: "Account created!", description: "Silakan cek email Anda untuk konfirmasi (jika diaktifkan)." });
+           // Alert tidak perlu karena UI akan berubah menjadi mode "Check Email"
         }
       }
     } catch (error: any) {
-      // Jika terjadi error (seperti error 500 SMTP), akan ditangkap dan ditampilkan di sini
-      toast({ title: "Authentication Failed", description: error.message, variant: "destructive" });
+      showAlert('error', error.message || "Authentication failed.");
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleSocialLogin = (provider: string) => {
-    toast({ title: "Coming Soon", description: `Login dengan ${provider} belum dikonfigurasi di Supabase Anda.` });
+    showAlert('error', `${provider} login is not configured yet.`);
   };
 
   return (
-    <div className="min-h-screen flex bg-background-light">
+    <div className="min-h-screen flex bg-background-light relative">
       
-      {/* --- BAGIAN KIRI: BRANDING (Sembunyi di Mobile) --- */}
+      {/* --- POP-UP NOTIFIKASI KUSTOM --- */}
+      <FloatingAlert alert={alert} onClose={() => setAlert(null)} />
+
+      {/* --- BAGIAN KIRI: BRANDING --- */}
       <div className="hidden lg:flex lg:w-1/2 bg-primary relative overflow-hidden flex-col justify-between p-12 text-white">
-        {/* Background Pattern/Glow */}
         <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
           <div className="absolute -top-[20%] -left-[10%] w-[70%] h-[70%] rounded-full bg-white/10 blur-3xl"></div>
           <div className="absolute bottom-[10%] -right-[20%] w-[60%] h-[60%] rounded-full bg-blue-400/20 blur-3xl"></div>
         </div>
 
-        {/* Logo */}
         <Link to="/" className="relative z-10 flex items-center gap-2 w-max cursor-pointer hover:opacity-90 transition-opacity">
           <div className="bg-white p-1.5 rounded-lg">
             <svg className="w-6 h-6 text-primary" fill="none" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
@@ -98,7 +124,6 @@ export default function LoginPage() {
           <span className="text-2xl font-bold tracking-tight">NEXUSFLOW</span>
         </Link>
 
-        {/* Copywriting */}
         <div className="relative z-10 max-w-lg">
           <motion.h2 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="text-4xl font-black leading-tight mb-6">
             Scale your operations with intelligent precision.
@@ -121,7 +146,6 @@ export default function LoginPage() {
 
       {/* --- BAGIAN KANAN: FORM LOGIN/REGISTER --- */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative">
-        {/* Tombol Back Mobile */}
         <Link to="/" className="lg:hidden absolute top-6 left-6 text-sm font-semibold text-muted-foreground hover:text-primary transition-colors">
           ← Back
         </Link>
@@ -141,7 +165,6 @@ export default function LoginPage() {
           ) : (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
               
-              {/* Header Form */}
               <div className="text-center mb-8">
                 <h1 className="text-3xl font-black text-foreground mb-2">
                   {isLogin ? "Welcome back" : "Create an account"}
@@ -151,7 +174,6 @@ export default function LoginPage() {
                 </p>
               </div>
 
-              {/* Form Input */}
               <form onSubmit={handleAuth} className="space-y-5">
                 <div className="space-y-1.5">
                   <label className="block text-sm font-semibold text-foreground">Email</label>
@@ -201,13 +223,11 @@ export default function LoginPage() {
                 </motion.button>
               </form>
 
-              {/* Pemisah */}
               <div className="mt-8 mb-6 relative">
                 <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border"></div></div>
                 <div className="relative flex justify-center text-sm"><span className="px-4 bg-background-light text-muted-foreground">Or continue with</span></div>
               </div>
 
-              {/* Social Logins */}
               <div className="grid grid-cols-2 gap-4 mb-8">
                 <button onClick={() => handleSocialLogin('Google')} type="button" className="flex items-center justify-center gap-2 py-2.5 border border-border bg-card hover:bg-muted rounded-xl text-sm font-semibold transition-colors shadow-sm">
                   <Chrome className="w-4 h-4" /> Google
@@ -217,7 +237,6 @@ export default function LoginPage() {
                 </button>
               </div>
 
-              {/* Toggle Mode */}
               <p className="text-center text-sm text-muted-foreground">
                 {isLogin ? "Don't have an account? " : "Already have an account? "}
                 <button onClick={() => setIsLogin(!isLogin)} className="font-bold text-primary hover:underline">

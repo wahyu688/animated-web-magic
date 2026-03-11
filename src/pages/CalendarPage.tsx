@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChevronLeft, ChevronRight, Plus, Clock, X, Calendar as CalendarIcon, AlignLeft, Trash2, Loader2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useToast } from "@/hooks/use-toast";
+import { logActivity } from "../lib/activityLogger";
 
 // --- TYPES ---
 interface CalendarEvent {
@@ -170,24 +171,67 @@ export default function CalendarPage() {
     if (editingEventId) {
       // UPDATE KE DB
       const { error } = await supabase.from('calendar_events').update(eventPayload).eq('id', editingEventId);
-      if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-      else toast({ title: "Success", description: "Jadwal berhasil diperbarui." });
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
+      } else {
+        toast({ title: "Success", description: "Jadwal berhasil diperbarui." });
+        
+        // 🚀 SUNTIKAN NOTIFIKASI: JADWAL DIUPDATE
+        await logActivity({
+          user: "You",
+          action: "updated the schedule for",
+          target: newEventTitle,
+          type: "success",
+          iconName: "CheckCircle",
+          iconBg: "bg-info/10 text-info"
+        });
+      }
     } else {
       // INSERT KE DB
       const { error } = await supabase.from('calendar_events').insert([eventPayload]);
-      if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-      else toast({ title: "Success", description: "Jadwal baru ditambahkan." });
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
+      } else {
+        toast({ title: "Success", description: "Jadwal baru ditambahkan." });
+        
+        // 🚀 SUNTIKAN NOTIFIKASI: JADWAL BARU
+        await logActivity({
+          user: "You",
+          action: "scheduled a new event:",
+          target: newEventTitle,
+          message: `Set for ${newEventDateStr} at ${newEventTime}`,
+          type: "invite",
+          iconName: "AtSign",
+          iconBg: "bg-primary/10 text-primary"
+        });
+      }
     }
 
     setIsFormModalOpen(false);
   };
 
+  // --- HANDLER HAPUS JADWAL ---
   const handleDeleteEvent = async (id: string) => {
+    // Ambil nama judul sebelum dihapus untuk notifikasi
+    const eventTitle = selectedEvent?.title || "an event"; 
+    
     const { error } = await supabase.from('calendar_events').delete().eq('id', id);
+    
     if (error) {
       toast({ title: "Error", description: "Gagal menghapus jadwal.", variant: "destructive" });
     } else {
       toast({ title: "Terhapus", description: "Jadwal berhasil dihapus dari sistem." });
+      
+      // 🚀 SUNTIKAN NOTIFIKASI: JADWAL DIBATALKAN
+      await logActivity({
+        user: "You",
+        action: "canceled the event",
+        target: eventTitle,
+        type: "warning",
+        iconName: "AlertTriangle",
+        iconBg: "bg-destructive/10 text-destructive"
+      });
+      
       setSelectedEvent(null);
     }
   };

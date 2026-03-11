@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { User, Lock, Bell, CreditCard, Puzzle, Camera, Shield, Smartphone, Key, Mail, Monitor, Globe, Slack, Github, Webhook, ChevronRight, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
+import { logActivity } from "../lib/activityLogger";
 
 const tabs = [
   { icon: User, label: "General" },
@@ -80,6 +81,16 @@ function GeneralTab({ session }: { session: any }) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     } else {
       toast({ title: "Profile updated", description: "Your general profile settings have been saved successfully." });
+      
+      // 🚀 SUNTIKAN NOTIFIKASI: UPDATE PROFIL
+      await logActivity({
+        user: "You",
+        action: "updated your",
+        target: "Profile Details",
+        type: "success",
+        iconName: "CheckCircle",
+        iconBg: "bg-success/10 text-success"
+      });
     }
     setIsLoading(false);
   };
@@ -176,6 +187,16 @@ function SecurityTab() {
     } else {
       toast({ title: "Password updated", description: "Your password has been changed successfully." });
       setPasswords({ new: "", confirm: "" });
+
+      // 🚀 SUNTIKAN NOTIFIKASI: GANTI PASSWORD (Penting untuk keamanan!)
+      await logActivity({
+        user: "You",
+        action: "changed your",
+        target: "Account Password",
+        type: "warning", // Pakai warna kuning/merah agar terlihat mencolok
+        iconName: "AlertTriangle",
+        iconBg: "bg-warning/10 text-warning"
+      });
     }
     setIsUpdating(false);
   };
@@ -250,9 +271,24 @@ function NotificationsTab({ session }: { session: any }) {
   const handleSave = async () => {
     if (!session?.user?.id) return;
     setIsLoading(true);
+    
     const { error } = await supabase.from('user_profiles').upsert({ id: session.user.id, ...prefs });
-    if (error) toast({ title: "Error", description: "Failed to save preferences.", variant: "destructive" });
-    else toast({ title: "Preferences saved", description: "Your notification settings have been updated." });
+    
+    if (error) {
+      toast({ title: "Error", description: "Failed to save preferences.", variant: "destructive" });
+    } else {
+      toast({ title: "Preferences saved", description: "Your notification settings have been updated." });
+      
+      // 🚀 SUNTIKAN NOTIFIKASI: UPDATE PREFERENSI NOTIFIKASI
+      await logActivity({
+        user: "You",
+        action: "updated",
+        target: "Notification Preferences",
+        type: "success",
+        iconName: "CheckCircle",
+        iconBg: "bg-success/10 text-success"
+      });
+    }
     setIsLoading(false);
   };
 

@@ -5,6 +5,7 @@ import TaskSlideover from "@/components/modals/TaskSlideover";
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { supabase } from "../lib/supabase";
 import { useToast } from "@/hooks/use-toast";
+import { logActivity } from "../lib/activityLogger";
 
 // --- INTERFACES ---
 interface Task {
@@ -97,7 +98,7 @@ export default function KanbanPage() {
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
-    // Kloning state untuk Optimistic UI Update (Biar UI instan berubah sebelum DB selesai)
+    // Kloning state untuk Optimistic UI Update
     const newCols = [...columnsData];
     const sourceColIndex = newCols.findIndex(c => c.id === source.droppableId);
     const destColIndex = newCols.findIndex(c => c.id === destination.droppableId);
@@ -107,16 +108,15 @@ export default function KanbanPage() {
     // Angkat task
     const [movedTask] = sourceTasks.splice(source.index, 1);
     
-    // --- MENGHITUNG POSISI BARU (LexoRank Sederhana) ---
+    // --- MENGHITUNG POSISI BARU ---
     let newPosition = 1000;
     if (destTasks.length === 0) {
-      newPosition = 1000; // Jika kolom kosong
+      newPosition = 1000;
     } else if (destination.index === 0) {
-      newPosition = destTasks[0].position - 1000; // Taruh di paling atas
+      newPosition = destTasks[0].position - 1000;
     } else if (destination.index === destTasks.length) {
-      newPosition = destTasks[destTasks.length - 1].position + 1000; // Taruh di paling bawah
+      newPosition = destTasks[destTasks.length - 1].position + 1000;
     } else {
-      // Taruh di tengah-tengah dua kartu
       const prevPos = destTasks[destination.index - 1].position;
       const nextPos = destTasks[destination.index].position;
       newPosition = (prevPos + nextPos) / 2; 
@@ -144,6 +144,20 @@ export default function KanbanPage() {
     if (error) {
       toast({ title: "Sync Error", description: "Gagal menyimpan posisi ke server.", variant: "destructive" });
       fetchTasks(); // Kembalikan ke posisi awal jika gagal
+    } else {
+      // 🚀 SUNTIKAN NOTIFIKASI: HANYA JIKA PINDAH KOLOM
+      if (source.droppableId !== destination.droppableId) {
+        const destColName = baseColumns.find(c => c.id === destination.droppableId)?.title || "a new column";
+        await logActivity({
+          user: "You",
+          action: `moved a task to`,
+          target: destColName,
+          message: `"${movedTask.title}"`,
+          type: destination.droppableId === "done" ? "success" : "upload", // Hijau jika masuk Done
+          iconName: "CheckCircle",
+          iconBg: destination.droppableId === "done" ? "bg-success/10 text-success" : "bg-primary/10 text-primary"
+        });
+      }
     }
   };
 
@@ -171,7 +185,17 @@ export default function KanbanPage() {
       toast({ title: "Error", description: "Gagal menambah tugas baru.", variant: "destructive" });
     } else {
       toast({ title: "Tugas Ditambahkan", description: "Tugas baru tersimpan ke database!" });
-      // Real-time listener di atas akan otomatis me-refresh layar Anda!
+      
+      // 🚀 SUNTIKAN NOTIFIKASI: TASK BARU
+      const colName = baseColumns.find(c => c.id === columnId)?.title || columnId;
+      await logActivity({
+        user: "You",
+        action: "created a new task in",
+        target: colName,
+        type: "upload",
+        iconName: "GitBranch", // Memakai icon dari IconMap di ActivityPage
+        iconBg: "bg-warning/10 text-warning"
+      });
     }
   };
 
