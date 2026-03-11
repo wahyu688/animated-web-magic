@@ -4,6 +4,7 @@ import { Search, Download, Plus, Edit, Trash2, Shield, Eye, FileEdit, X, Loader2
 import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
+import { logActivity } from "../lib/activityLogger";
 
 // --- TYPES & UTILS ---
 interface TeamMember {
@@ -118,6 +119,17 @@ export default function TeamPage() {
         toast({ title: "Error", description: "Failed to delete member.", variant: "destructive" });
       } else {
         toast({ title: "Member removed", description: "Team member has been successfully removed." });
+        
+        // 🚀 SUNTIKAN NOTIFIKASI: HAPUS MEMBER
+        await logActivity({
+          user: "You",
+          action: "removed a team member:",
+          target: deleteTarget.name,
+          type: "warning",
+          iconName: "AlertTriangle",
+          iconBg: "bg-destructive/10 text-destructive"
+        });
+
         setSelectedEmails(prev => prev.filter(e => e !== deleteTarget.email));
         if (paginatedMembers.length === 1 && currentPage > 1) setCurrentPage(currentPage - 1);
       }
@@ -155,8 +167,21 @@ export default function TeamPage() {
         initials: initials
       }).eq('id', editTargetId);
 
-      if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-      else toast({ title: "Member updated", description: "Team member details updated successfully." });
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
+      } else {
+        toast({ title: "Member updated", description: "Team member details updated successfully." });
+        
+        // 🚀 SUNTIKAN NOTIFIKASI: UPDATE MEMBER
+        await logActivity({
+          user: "You",
+          action: "updated role/status for",
+          target: formData.name,
+          type: "success",
+          iconName: "CheckCircle",
+          iconBg: "bg-info/10 text-info"
+        });
+      }
     } else {
       // Add mode (Insert ke Supabase)
       if (members.some(m => m.email === formData.email)) {
@@ -178,8 +203,23 @@ export default function TeamPage() {
       };
       
       const { error } = await supabase.from('team_members').insert([newMemberPayload]);
-      if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
-      else toast({ title: "Member added", description: "New team member has been successfully added." });
+      
+      if (error) {
+        toast({ title: "Error", description: error.message, variant: "destructive" });
+      } else {
+        toast({ title: "Member added", description: "New team member has been successfully added." });
+        
+        // 🚀 SUNTIKAN NOTIFIKASI: TAMBAH MEMBER BARU
+        await logActivity({
+          user: "You",
+          action: "invited a new team member:",
+          target: formData.name,
+          type: "invite",
+          iconName: "AtSign",
+          iconBg: "bg-primary/10 text-primary",
+          hasAction: true 
+        });
+      }
     }
     
     setIsModalOpen(false);

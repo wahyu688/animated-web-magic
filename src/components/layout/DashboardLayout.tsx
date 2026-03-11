@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { supabase } from "../../lib/supabase"; // Pastikan path ini benar!
 import {
   BarChart3, Calendar, ChevronLeft, Home, Kanban,
   Bell, Search, Settings, Users, Zap, CreditCard, Activity, Menu, BookOpen
@@ -26,6 +27,39 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+
+  // --- STATE UNTUK NOTIFIKASI ---
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // --- EFFECT UNTUK REAL-TIME NOTIFIKASI ---
+  useEffect(() => {
+    // Fungsi untuk menghitung jumlah notifikasi yang belum dibaca
+    const fetchUnreadCount = async () => {
+      const { count, error } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('unread', true);
+      
+      if (!error && count !== null) {
+        setUnreadCount(count);
+      }
+    };
+
+    // Panggil saat komponen pertama kali dimuat
+    fetchUnreadCount();
+
+    // Dengarkan perubahan secara real-time dari tabel 'notifications'
+    const channel = supabase.channel('navbar-bell-room')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
+        // Jika ada perubahan (insert, update, delete), hitung ulang
+        fetchUnreadCount(); 
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -72,20 +106,29 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
           {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
+            const isActive = location.pathname.startsWith(item.path); // Diubah agar sub-path juga aktif
             return (
               <Link
                 key={item.path}
                 to={item.path}
                 onClick={() => setMobileOpen(false)}
-                className={`group flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                className={`group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                   isActive
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 }`}
               >
-                <item.icon className={`h-5 w-5 shrink-0 transition-transform group-hover:scale-110 ${isActive ? "text-primary" : ""}`} />
-                {!collapsed && <span className="truncate">{item.label}</span>}
+                <div className="flex items-center gap-3">
+                  <item.icon className={`h-5 w-5 shrink-0 transition-transform group-hover:scale-110 ${isActive ? "text-primary" : ""}`} />
+                  {!collapsed && <span className="truncate">{item.label}</span>}
+                </div>
+                
+                {/* Tambahan: Menampilkan badge angka di menu Activity jika ada notifikasi unread */}
+                {!collapsed && item.label === "Activity" && unreadCount > 0 && (
+                  <span className="bg-primary text-primary-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">
+                    {unreadCount}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -119,10 +162,15 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button className="relative p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors">
+            
+            {/* --- IKON LONCENG YANG SUDAH DINAMIS --- */}
+            <Link to="/activity" className="relative p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors cursor-pointer block">
               <Bell className="h-5 w-5" />
-              <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive ring-2 ring-card" />
-            </button>
+              {unreadCount > 0 && (
+                <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive ring-2 ring-card animate-pulse" />
+              )}
+            </Link>
+            
             <div className="h-8 w-px bg-border" />
             <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-sm cursor-pointer hover:opacity-90 transition-opacity">A</div>
           </div>

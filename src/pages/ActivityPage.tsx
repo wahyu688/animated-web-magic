@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { AtSign, AlertTriangle, Upload, CheckCircle, GitBranch, ArrowDown, Check, Send, X, Calendar, Users, Tag, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
+import { logActivity } from "../lib/activityLogger";
 
 // --- PETA IKON ---
 const IconMap: Record<string, any> = {
