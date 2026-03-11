@@ -109,10 +109,11 @@ export default function DashboardPage() {
     };
   }, [navigate]);
 
-  // 2. FETCH DATA DARI DATABASE BILA USER SUDAH LOGIN
+// 2. FETCH DATA & SUBSCRIBE KE REAL-TIME SUPABASE
   useEffect(() => {
     if (!userEmail) return;
 
+    // Fungsi untuk menarik data awal
     const fetchDashboardInfo = async () => {
       setIsLoadingDB(true);
       try {
@@ -139,6 +140,42 @@ export default function DashboardPage() {
     };
 
     fetchDashboardInfo();
+
+    // ==========================================
+    // 🪄 SIHIR REAL-TIME SUPABASE DIMULAI DI SINI
+    // ==========================================
+    const channel = supabase
+      .channel('dashboard-room')
+      // Dengarkan perubahan di tabel traffic_sources
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'traffic_sources' }, (payload) => {
+        console.log("Perubahan Traffic:", payload);
+        
+        setTrafficSources((current) => {
+          if (payload.eventType === 'INSERT') return [...current, payload.new].sort((a, b) => b.pct - a.pct);
+          if (payload.eventType === 'DELETE') return current.filter(item => item.id !== payload.old.id);
+          if (payload.eventType === 'UPDATE') {
+            return current.map(item => item.id === payload.new.id ? payload.new : item).sort((a, b) => b.pct - a.pct);
+          }
+          return current;
+        });
+      })
+      // Dengarkan perubahan di tabel top_pages
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'top_pages' }, (payload) => {
+        console.log("Perubahan Top Pages:", payload);
+        
+        setTopPages((current) => {
+          if (payload.eventType === 'INSERT') return [...current, payload.new];
+          if (payload.eventType === 'DELETE') return current.filter(item => item.id !== payload.old.id);
+          if (payload.eventType === 'UPDATE') return current.map(item => item.id === payload.new.id ? payload.new : item);
+          return current;
+        });
+      })
+      .subscribe();
+
+    // Bersihkan saluran (unsubscribe) jika user pindah halaman agar tidak bocor memori
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [userEmail, toast]);
 
   const handleLogout = async () => {
