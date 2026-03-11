@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { Repeat, BarChart3, ShieldCheck, Hexagon, Triangle, Circle, Square, Infinity as InfinityIcon } from "lucide-react";
+import dashboardImg from "../DashboardPreview.png";
 
 export default function LandingPage() {
   // Warna kustom dari desain HTML Anda (diubah ke format arbitrary Tailwind agar langsung jalan)
@@ -65,18 +66,25 @@ export default function LandingPage() {
       </section>
 
       {/* --- DASHBOARD PREVIEW --- */}
-      <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.4 }} className="max-w-6xl mx-auto px-6 mb-32">
-        <div className="relative rounded-2xl overflow-hidden border border-[#0f2ab3]/10 shadow-2xl bg-white aspect-[16/9] w-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
-          {/* Ganti div ini dengan tag <img> asli jika Anda sudah punya screenshot aplikasinya */}
-          <div>
-            <img src="./assets/DashboardPreview" />
-          </div>
+      <motion.div 
+        initial={{ opacity: 0, y: 40 }} 
+        animate={{ opacity: 1, y: 0 }} 
+        transition={{ duration: 0.7, delay: 0.4 }} 
+        className="max-w-6xl mx-auto px-6 mb-32"
+      >
+        <div className="relative rounded-2xl overflow-hidden border border-[#0f2ab3]/10 shadow-2xl bg-white w-full">
           
-          {/* <div className="text-center opacity-40">
-             <BarChart3 className="w-20 h-20 mx-auto mb-4" style={{ color: brandColor }} />
-             <p className="text-2xl font-bold text-slate-400">Dashboard UI Preview</p>
-          </div> */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#fcfcfd]/80 to-transparent"></div>
+          {/* Gambar Asli Aplikasi Anda */}
+          <img 
+            src={dashboardImg} 
+            alt="Xenith App Dashboard Preview" 
+            className="w-full h-auto object-cover"
+          />
+
+          {/* Efek Gradasi (Opsional) - Menyatukan gambar dengan background bawah. 
+              Jika gambar jadi terlalu pudar, Anda bisa MENGHAPUS baris di bawah ini. */}
+          <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#fcfcfd] to-transparent pointer-events-none"></div>
+
         </div>
       </motion.div>
 
