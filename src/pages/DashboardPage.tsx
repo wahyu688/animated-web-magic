@@ -5,13 +5,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 
-// --- GRAFIK STATIS (Hanya grafiknya saja yang menggunakan template SVG) ---
-const chartData = {
-  path: "M0,220 C120,220 120,180 240,180 C360,180 360,240 480,240 C600,240 600,120 720,120 C840,120 840,150 960,150 C1080,150 1080,60 1200,60",
-  labels: ["Week 1", "Week 2", "Week 3", "Week 4", "Week 5", "Week 6"],
-  dots: [{ cx: 480, cy: 240 }, { cx: 960, cy: 150 }]
-};
-
 const cardVariants = {
 hidden: { opacity: 0, y: 20 },
 visible: (i: number) => ({
@@ -25,27 +18,111 @@ ease: "easeOut"
 })
 } as Variants;
 
+// --- FUNGSI MATEMATIKA BEZIER CURVE (Didaur ulang dari Analytics) ---
+const generateSmoothPath = (data: any[], key: string, width: number, height: number, maxVal: number) => {
+  if (!data || data.length === 0) return { path: "", points: [] };
+  
+  const xStep = width / (data.length - 1 || 1);
+  let path = "";
+  let points: any[] = [];
+
+  data.forEach((d, i) => {
+    const x = i * xStep;
+    // Padding atas agar tidak nabrak atap (dikali 0.85)
+    const y = height - (d[key] / maxVal) * (height * 0.85); 
+    
+    points.push({ cx: x, cy: y, val: d[key], label: d.month });
+
+    if (i === 0) {
+      path += `M${x},${y}`;
+    } else {
+      const prevX = (i - 1) * xStep;
+      const prevY = height - (data[i - 1][key] / maxVal) * (height * 0.85);
+      const cpX1 = prevX + xStep / 2;
+      const cpX2 = x - xStep / 2;
+      path += ` C${cpX1},${prevY} ${cpX2},${y} ${x},${y}`;
+    }
+  });
+
+  return { path, points };
+};
+
 export default function DashboardPage() {
-  const [activeRange, setActiveRange] = useState("30D");
+  const [activeRange, setActiveRange] = useState("1Y");
   const [userEmail, setUserEmail] = useState<string | null>(null);
+  const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
   
   // State Data Dinamis dari Supabase
-  const [kpiData, setKpiData] = useState({ revenue: "$0", users: "0", session: "0", churn: "0%" });
+  const [kpiData, setKpiData] = useState({ 
+    revenue: "$0", revenue_change: "0%", revenue_trend: "stable",
+    users: "0", users_change: "0%", users_trend: "stable",
+    session: "0", session_change: "0%", session_trend: "stable",
+    churn: "0%", churn_change: "0%", churn_trend: "stable" 
+  });
   const [topPages, setTopPages] = useState<any[]>([]);
   const [trafficSources, setTrafficSources] = useState<any[]>([]);
+  const [chartRawData, setChartRawData] = useState<any[]>([]); // Data Grafik Dinamis
   const [isLoadingDB, setIsLoadingDB] = useState(true);
 
   const { toast } = useToast();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) navigate("/login");
-      else setUserEmail(session.user.email || "User");
+    if (!userEmail) return;
+
+    // Fungsi untuk menarik data dari Supabase
+    const fetchDashboardInfo = async () => {
+      // Hilangkan setIsLoadingDB(true) di sini agar saat Real-Time update, layar tidak kedap-kedip loading
+      try {
+        const [pagesRes, trafficRes, kpiRes, chartRes] = await Promise.all([
+          supabase.from('top_pages').select('*').order('views', { ascending: false }),
+          supabase.from('traffic_sources').select('*').order('pct', { ascending: false }),
+          supabase.from('dashboard_kpis').select('*').limit(1).single(),
+          supabase.from('chart_data').select('*').order('sort_order', { ascending: true })
+        ]);
+
+        if (pagesRes.data) setTopPages(pagesRes.data);
+        if (trafficRes.data) setTrafficSources(trafficRes.data);
+        if (kpiRes.data) {
+          setKpiData({
+            revenue: kpiRes.data.total_revenue, revenue_change: kpiRes.data.revenue_change || "0%", revenue_trend: kpiRes.data.revenue_trend || "stable",
+            users: kpiRes.data.active_users, users_change: kpiRes.data.users_change || "0%", users_trend: kpiRes.data.users_trend || "stable",
+            session: kpiRes.data.avg_session, session_change: kpiRes.data.session_change || "0%", session_trend: kpiRes.data.session_trend || "stable",
+            churn: kpiRes.data.churn_rate, churn_change: kpiRes.data.churn_change || "0%", churn_trend: kpiRes.data.churn_trend || "stable"
+          });
+        }
+        if (chartRes.data) setChartRawData(chartRes.data);
+
+      } catch (error) {
+        console.error("Gagal menarik data:", error);
+      } finally {
+        setIsLoadingDB(false);
+      }
     };
-    checkUser();
-  }, [navigate]);
+
+    // 1. Tarik data saat halaman pertama kali dibuka
+    fetchDashboardInfo();
+
+    const channel = supabase.channel('dashboard-live-updates')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'traffic_sources' }, () => {
+        fetchDashboardInfo(); // Tarik data baru diam-diam di latar belakang
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'top_pages' }, () => {
+        fetchDashboardInfo();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dashboard_kpis' }, () => {
+        fetchDashboardInfo();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chart_data' }, () => {
+        fetchDashboardInfo();
+      })
+      .subscribe();
+
+    // Bersihkan saluran saat user pindah halaman
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [userEmail]);
 
   useEffect(() => {
     if (!userEmail) return;
@@ -53,10 +130,11 @@ export default function DashboardPage() {
     const fetchDashboardInfo = async () => {
       setIsLoadingDB(true);
       try {
-        const [pagesRes, trafficRes, kpiRes] = await Promise.all([
+        const [pagesRes, trafficRes, kpiRes, chartRes] = await Promise.all([
           supabase.from('top_pages').select('*').order('views', { ascending: false }),
           supabase.from('traffic_sources').select('*').order('pct', { ascending: false }),
-          supabase.from('dashboard_kpis').select('*').limit(1).single() // Ambil KPI
+          supabase.from('dashboard_kpis').select('*').limit(1).single(),
+          supabase.from('chart_data').select('*').order('sort_order', { ascending: true }) // Ambil data grafik!
         ]);
 
         if (pagesRes.data) setTopPages(pagesRes.data);
@@ -64,11 +142,24 @@ export default function DashboardPage() {
         if (kpiRes.data) {
           setKpiData({
             revenue: kpiRes.data.total_revenue,
+            revenue_change: kpiRes.data.revenue_change || "0%",
+            revenue_trend: kpiRes.data.revenue_trend || "stable",
+            
             users: kpiRes.data.active_users,
+            users_change: kpiRes.data.users_change || "0%",
+            users_trend: kpiRes.data.users_trend || "stable",
+            
             session: kpiRes.data.avg_session,
-            churn: kpiRes.data.churn_rate
+            session_change: kpiRes.data.session_change || "0%",
+            session_trend: kpiRes.data.session_trend || "stable",
+            
+            churn: kpiRes.data.churn_rate,
+            churn_change: kpiRes.data.churn_change || "0%",
+            churn_trend: kpiRes.data.churn_trend || "stable"
           });
         }
+        if (chartRes.data) setChartRawData(chartRes.data);
+
       } catch (error) {
         console.error("Gagal menarik data:", error);
       } finally {
@@ -79,12 +170,24 @@ export default function DashboardPage() {
     fetchDashboardInfo();
   }, [userEmail]);
 
-  // Siapkan array metrik untuk di-mapping ke kartu UI
+  // --- MENGHITUNG KORDINAT SVG DINAMIS UNTUK DASHBOARD ---
+  const maxChartValue = Math.max(
+    ...chartRawData.map(d => d.current_val), 
+    ...chartRawData.map(d => d.previous_val), 
+    1 
+  );
+
+  const width = 1200;
+  const height = 280; // Dashboard grafiknya sedikit lebih pendek dari Analytics (280px vs 350px)
+
+  const currentYearGraph = generateSmoothPath(chartRawData, 'current_val', width, height, maxChartValue);
+  const previousYearGraph = generateSmoothPath(chartRawData, 'previous_val', width, height, maxChartValue);
+
   const displayStats = [
-    { label: "Total Revenue", value: kpiData.revenue, change: "+12.5%", trend: "up", icon: DollarSign, color: "text-primary" },
-    { label: "Active Users", value: kpiData.users, change: "+3.2%", trend: "up", icon: Users, color: "text-info" },
-    { label: "Avg. Session", value: kpiData.session, change: "-1.1%", trend: "down", icon: Clock, color: "text-warning" },
-    { label: "Churn Rate", value: kpiData.churn, change: "Stable", trend: "stable", icon: BarChart3, color: "text-muted-foreground" },
+    { label: "Total Revenue", value: kpiData.revenue, change: kpiData.revenue_change, trend: kpiData.revenue_trend, icon: DollarSign, color: "text-primary" },
+    { label: "Active Users", value: kpiData.users, change: kpiData.users_change, trend: kpiData.users_trend, icon: Users, color: "text-info" },
+    { label: "Avg. Session", value: kpiData.session, change: kpiData.session_change, trend: kpiData.session_trend, icon: Clock, color: "text-warning" },
+    { label: "Churn Rate", value: kpiData.churn, change: kpiData.churn_change, trend: kpiData.churn_trend, icon: BarChart3, color: "text-muted-foreground" },
   ];
 
   if (!userEmail) return null;
@@ -106,7 +209,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* KPI Cards (Sekarang Dinamis dari DB!) */}
+      {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {displayStats.map((stat, i) => (
           <motion.div key={stat.label} custom={i} variants={cardVariants} initial="hidden" animate="visible" className="group relative overflow-hidden rounded-2xl bg-card border border-border p-6 shadow-card hover:shadow-card-hover transition-all">
@@ -137,29 +240,79 @@ export default function DashboardPage() {
       {/* Chart + Traffic */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        {/* Revenue Chart */}
+        {/* Revenue Chart (KINI DINAMIS!) */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="lg:col-span-2 bg-card rounded-2xl border border-border shadow-card p-6 lg:p-8">
           <div className="flex justify-between items-center mb-8">
             <div>
               <h2 className="text-lg font-bold text-foreground">Revenue Growth</h2>
               <p className="text-sm text-muted-foreground">Income trends across all channels.</p>
             </div>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center">
+                <span className="h-3 w-3 rounded-full bg-primary mr-2" />
+                <span className="text-xs font-medium text-muted-foreground">Current</span>
+              </div>
+              <div className="flex items-center">
+                <span className="h-3 w-3 rounded-full bg-border mr-2" />
+                <span className="text-xs font-medium text-muted-foreground">Previous</span>
+              </div>
+            </div>
           </div>
-          <div className="relative w-full h-[280px]">
-            <svg className="w-full h-full" viewBox="0 0 1200 280" preserveAspectRatio="none">
-              <defs>
-                <linearGradient id="areaGrad" x1="0%" y1="0%" x2="0%" y2="100%">
-                  <stop offset="0%" style={{ stopColor: "hsl(222 80% 45%)", stopOpacity: 0.2 }} />
-                  <stop offset="100%" style={{ stopColor: "hsl(222 80% 45%)", stopOpacity: 0 }} />
-                </linearGradient>
-              </defs>
-              {[0, 70, 140, 210, 280].map((y) => (
-                <line key={`line-${y}`} x1="0" y1={y} x2="1200" y2={y} stroke="hsl(214 20% 92%)" strokeWidth="1" />
-              ))}
-              <path d={`${chartData.path} V280 H0 Z`} fill="url(#areaGrad)" />
-              <motion.path d={chartData.path} fill="none" stroke="hsl(222 80% 45%)" strokeWidth="3" strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.2 }} />
-            </svg>
-          </div>
+          
+          {isLoadingDB ? (
+            <div className="flex justify-center items-center h-[280px]">
+              <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="relative w-full h-[280px]">
+              <svg className="w-full h-full overflow-visible" viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="areaGradDashboard" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style={{ stopColor: "hsl(222 80% 45%)", stopOpacity: 0.2 }} />
+                    <stop offset="100%" style={{ stopColor: "hsl(222 80% 45%)", stopOpacity: 0 }} />
+                  </linearGradient>
+                </defs>
+                
+                {/* Garis Horizontal Latar Belakang */}
+                {[0, 70, 140, 210, 280].map((y) => (
+                  <line key={`line-${y}`} x1="0" y1={y} x2="1200" y2={y} stroke="hsl(214 20% 92%)" strokeWidth="1" />
+                ))}
+                
+                {/* Grafik Tahun Lalu */}
+                {previousYearGraph.path && (
+                  <motion.path d={previousYearGraph.path} fill="none" stroke="hsl(214 20% 85%)" strokeWidth="2" strokeDasharray="6,6" strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.5 }} />
+                )}
+                
+                {/* Grafik Tahun Ini */}
+                {currentYearGraph.path && (
+                  <>
+                    <path d={`${currentYearGraph.path} V${height} H0 Z`} fill="url(#areaGradDashboard)" />
+                    <motion.path d={currentYearGraph.path} fill="none" stroke="hsl(222 80% 45%)" strokeWidth="3" strokeLinecap="round" initial={{ pathLength: 0 }} animate={{ pathLength: 1 }} transition={{ duration: 1.2, ease: "easeInOut" }} />
+                  </>
+                )}
+
+                {/* Titik Interaktif Saat Di-Hover */}
+                {currentYearGraph.points.map((pt, index) => (
+                  <g key={index} onMouseEnter={() => setHoveredPoint(index)} onMouseLeave={() => setHoveredPoint(null)} className="cursor-pointer">
+                    <circle cx={pt.cx} cy={pt.cy} r={hoveredPoint === index ? "8" : "0"} fill="hsl(222 80% 45%)" stroke="white" strokeWidth="3" className="transition-all duration-200" />
+                    
+                    {hoveredPoint === index && (
+                      <g>
+                        <rect x={pt.cx - 45} y={pt.cy - 45} width="90" height="35" rx="6" fill="#0f172a" />
+                        <text x={pt.cx} y={pt.cy - 22} textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">
+                          ${pt.val.toLocaleString()}
+                        </text>
+                      </g>
+                    )}
+                  </g>
+                ))}
+              </svg>
+              
+              <div className="flex justify-between mt-2 text-xs font-medium text-muted-foreground px-2">
+                {chartRawData.map((d) => <span key={d.id}>{d.month}</span>)}
+              </div>
+            </div>
+          )}
         </motion.div>
 
         {/* Traffic Sources */}

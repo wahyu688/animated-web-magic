@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Navigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import DashboardLayout from "./DashboardLayout";
-import DashboardSkeleton from "../DashboardSkeleton"; // Sesuaikan path jika berbeda
+import DashboardSkeleton from "../DashboardSkeleton"; 
 
 export default function ProtectedLayout({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);

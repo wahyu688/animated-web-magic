@@ -40,6 +40,9 @@ function FloatingAlert({ alert, onClose }: { alert: { type: 'success' | 'error',
   );
 }
 
+const [firstName, setFirstName] = useState("");
+const [lastName, setLastName] = useState("");
+
 export default function LoginPage() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState("");
@@ -83,7 +86,16 @@ export default function LoginPage() {
         setTimeout(() => navigate("/dashboard"), 1000); 
         
       } else {
-        const { data, error } = await supabase.auth.signUp({ email, password });
+        const { data, error } = await supabase.auth.signUp({ 
+          email, 
+          password,
+          options: {
+            data: {
+              first_name: firstName,
+              last_name: lastName
+            }
+          }
+        });
         if (error) throw error;
 
         if (data.user && data.user.identities && data.user.identities.length === 0) {
@@ -180,6 +192,26 @@ export default function LoginPage() {
                   <label className="block text-sm font-semibold text-foreground">Email</label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                    {!isLogin && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="grid grid-cols-2 gap-4 mb-4">
+                        <div className="space-y-1.5">
+                          <label className="block text-sm font-semibold text-foreground">First Name</label>
+                          <input 
+                            type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required={!isLogin}
+                            placeholder="John" 
+                            className="w-full px-4 py-3 bg-card border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-foreground"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="block text-sm font-semibold text-foreground">Last Name</label>
+                          <input 
+                            type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} required={!isLogin}
+                            placeholder="Doe" 
+                            className="w-full px-4 py-3 bg-card border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-foreground"
+                          />
+                        </div>
+                      </motion.div>
+                    )}
                     <input 
                       type="email" 
                       value={email}

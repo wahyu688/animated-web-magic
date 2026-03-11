@@ -13,6 +13,7 @@ import CalendarPage from "./pages/CalendarPage";
 import TeamPage from "./pages/TeamPage";
 import ActivityPage from "./pages/ActivityPage";
 import SettingsPage from "./pages/SettingsPage";
+import FinancialPage from "./pages/FinancialPage";
 
 // --- LAYOUT ---
 // Pastikan path ini sesuai dengan tempat Anda menyimpan ProtectedLayout.tsx
@@ -60,6 +61,7 @@ export default function App() {
           path="/settings" 
           element={<ProtectedLayout><SettingsPage /></ProtectedLayout>} 
         />
+        <Route path="/financial" element={<ProtectedLayout><FinancialPage /></ProtectedLayout>} />
 
         {/* Tangkap semua URL yang tidak valid, tendang kembali ke Landing Page */}
         <Route path="*" element={<Navigate to="/" replace />} />

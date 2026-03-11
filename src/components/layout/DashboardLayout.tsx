@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../../lib/supabase"; // Pastikan path ini benar!
 import {
   BarChart3, Calendar, ChevronLeft, Home, Kanban,
-  Bell, Search, Settings, Users, Zap, CreditCard, Activity, Menu, BookOpen
+  Bell, Search, Settings, Users, Zap, CreditCard, Activity, Menu, BookOpen, DollarSign
 } from "lucide-react";
 
 const navItems = [
@@ -14,9 +14,8 @@ const navItems = [
   { icon: Calendar, label: "Calendar", path: "/calendar" },
   { icon: Users, label: "Team", path: "/team" },
   { icon: Activity, label: "Activity", path: "/activity" },
-  { icon: BookOpen, label: "Docs", path: "/docs" },
-  { icon: CreditCard, label: "Pricing", path: "/pricing" },
   { icon: Settings, label: "Settings", path: "/settings" },
+  { icon: DollarSign, label: "Financial", path: "/financial" },
 ];
 
 interface DashboardLayoutProps {
@@ -27,13 +26,31 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
-
-  // --- STATE UNTUK NOTIFIKASI ---
+  
+  // --- STATE PROFIL & NOTIFIKASI ---
+  const [profile, setProfile] = useState({ firstName: "Loading...", lastName: "", email: "..." });
   const [unreadCount, setUnreadCount] = useState(0);
+
+  // --- EFFECT UNTUK PROFIL ---
+  useEffect(() => {
+    const fetchProfile = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        // Ambil data dari tabel user_profiles
+        const { data } = await supabase.from('user_profiles').select('first_name, last_name').eq('id', user.id).single();
+        
+        setProfile({
+          firstName: data?.first_name || user.user_metadata?.first_name || "User",
+          lastName: data?.last_name || user.user_metadata?.last_name || "",
+          email: user.email || ""
+        });
+      }
+    };
+    fetchProfile();
+  }, []);
 
   // --- EFFECT UNTUK REAL-TIME NOTIFIKASI ---
   useEffect(() => {
-    // Fungsi untuk menghitung jumlah notifikasi yang belum dibaca
     const fetchUnreadCount = async () => {
       const { count, error } = await supabase
         .from('notifications')
@@ -45,13 +62,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       }
     };
 
-    // Panggil saat komponen pertama kali dimuat
     fetchUnreadCount();
 
-    // Dengarkan perubahan secara real-time dari tabel 'notifications'
     const channel = supabase.channel('navbar-bell-room')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
-        // Jika ada perubahan (insert, update, delete), hitung ulang
         fetchUnreadCount(); 
       })
       .subscribe();
@@ -60,6 +74,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  // Membuat inisial nama (Misal: "Wahyu Saputra" jadi "WS")
+  const getInitials = () => {
+    const first = profile.firstName.charAt(0).toUpperCase();
+    const last = profile.lastName ? profile.lastName.charAt(0).toUpperCase() : '';
+    return `${first}${last}`;
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -106,7 +127,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
           {navItems.map((item) => {
-            const isActive = location.pathname.startsWith(item.path); // Diubah agar sub-path juga aktif
+            const isActive = location.pathname.startsWith(item.path);
             return (
               <Link
                 key={item.path}
@@ -123,7 +144,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   {!collapsed && <span className="truncate">{item.label}</span>}
                 </div>
                 
-                {/* Tambahan: Menampilkan badge angka di menu Activity jika ada notifikasi unread */}
                 {!collapsed && item.label === "Activity" && unreadCount > 0 && (
                   <span className="bg-primary text-primary-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">
                     {unreadCount}
@@ -134,16 +154,21 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           })}
         </nav>
 
+        {/* --- PROFIL SIDEBAR DINAMIS --- */}
         <div className="border-t border-border p-3">
           <div className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-muted transition-colors cursor-pointer">
             <div className="relative shrink-0">
-              <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-sm">A</div>
+              <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-sm">
+                {getInitials()}
+              </div>
               <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-success ring-2 ring-card" />
             </div>
             {!collapsed && (
               <div className="flex-1 overflow-hidden">
-                <p className="text-sm font-semibold text-foreground truncate">Alex Morgan</p>
-                <p className="text-xs text-muted-foreground truncate">alex@nexus.com</p>
+                <p className="text-sm font-semibold text-foreground truncate">
+                  {profile.firstName} {profile.lastName}
+                </p>
+                <p className="text-xs text-muted-foreground truncate">{profile.email}</p>
               </div>
             )}
           </div>
@@ -163,7 +188,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
           <div className="flex items-center gap-3">
             
-            {/* --- IKON LONCENG YANG SUDAH DINAMIS --- */}
             <Link to="/activity" className="relative p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors cursor-pointer block">
               <Bell className="h-5 w-5" />
               {unreadCount > 0 && (
@@ -172,7 +196,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </Link>
             
             <div className="h-8 w-px bg-border" />
-            <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-sm cursor-pointer hover:opacity-90 transition-opacity">A</div>
+            
+            {/* --- PROFIL HEADER DINAMIS --- */}
+            <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-sm cursor-pointer hover:opacity-90 transition-opacity">
+              {getInitials()}
+            </div>
+            
           </div>
         </header>
 

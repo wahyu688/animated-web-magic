@@ -8,7 +8,7 @@ interface LogProps {
   type?: "success" | "warning" | "mention" | "upload" | "commit" | "invite";
   iconName?: string;
   iconBg?: string;
-  hasAction?: boolean; // <-- INI YANG KURANG TADI
+  hasAction?: boolean; 
 }
 
 export const logActivity = async ({
@@ -19,7 +19,7 @@ export const logActivity = async ({
   type = "success",
   iconName = "CheckCircle",
   iconBg = "bg-success/10 text-success",
-  hasAction = false // <-- Tambahkan default valuenya di sini
+  hasAction = false 
 }: LogProps) => {
   try {
     // Tembak data ke tabel notifications
@@ -33,7 +33,7 @@ export const logActivity = async ({
       unread: true,
       icon_name: iconName,
       icon_bg: iconBg,
-      has_action: hasAction // <-- Kirim ke Supabase
+      has_action: hasAction 
     }]);
   } catch (error) {
     console.error("Gagal mencatat aktivitas:", error);
