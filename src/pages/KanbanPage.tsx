@@ -1,18 +1,23 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
-import { Plus, MoreHorizontal, MessageSquare, Paperclip, Clock } from "lucide-react";
-import TaskSlideover from "@/components/modals/TaskSlideover"; // Sesuaikan path jika berbeda
+import { Plus, MoreHorizontal, MessageSquare, Paperclip, Clock, Loader2 } from "lucide-react";
+import TaskSlideover from "@/components/modals/TaskSlideover"; 
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
+import { supabase } from "../lib/supabase";
+import { useToast } from "@/hooks/use-toast";
 
+// --- INTERFACES ---
 interface Task {
   id: string;
+  column_id: string;
   title: string;
   tag: string;
-  tagColor: string;
-  priority?: "high" | "medium" | "low";
+  tagColor: string; // Di DB namanya tag_color
+  priority?: "high" | "medium" | "low" | null;
   comments?: number;
   attachments?: number;
-  dueDate?: string;
+  dueDate?: string | null; // Di DB namanya due_date
+  position: number;
 }
 
 interface Column {
@@ -22,118 +27,163 @@ interface Column {
   tasks: Task[];
 }
 
-// Data awal dipindahkan ke dalam variabel initialColumns
-const initialColumns: Column[] = [
-  {
-    id: "backlog",
-    title: "Backlog",
-    color: "bg-muted-foreground",
-    tasks: [
-      { id: "1", title: "Research competitor analysis", tag: "Research", tagColor: "bg-violet-100 text-violet-700", comments: 3 },
-      { id: "2", title: "Define user personas", tag: "UX", tagColor: "bg-info/10 text-info", attachments: 2 },
-    ],
-  },
-  {
-    id: "todo",
-    title: "To Do",
-    color: "bg-warning",
-    tasks: [
-      { id: "3", title: "Design onboarding flow", tag: "Design", tagColor: "bg-primary/10 text-primary", priority: "high", comments: 5, dueDate: "Oct 28" },
-      { id: "4", title: "Setup CI/CD pipeline", tag: "DevOps", tagColor: "bg-success/10 text-success", attachments: 1 },
-      { id: "5", title: "Write API documentation", tag: "Docs", tagColor: "bg-warning/10 text-warning", dueDate: "Nov 01" },
-    ],
-  },
-  {
-    id: "progress",
-    title: "In Progress",
-    color: "bg-primary",
-    tasks: [
-      { id: "6", title: "Build authentication module", tag: "Dev", tagColor: "bg-success/10 text-success", priority: "high", comments: 8, dueDate: "Oct 25" },
-      { id: "7", title: "Dashboard analytics charts", tag: "Dev", tagColor: "bg-success/10 text-success", attachments: 4 },
-    ],
-  },
-  {
-    id: "review",
-    title: "Review",
-    color: "bg-warning",
-    tasks: [
-      { id: "8", title: "Website redesign mockups", tag: "Design", tagColor: "bg-primary/10 text-primary", comments: 12, attachments: 6 },
-    ],
-  },
-  {
-    id: "done",
-    title: "Done",
-    color: "bg-success",
-    tasks: [
-      { id: "9", title: "Setup project repository", tag: "DevOps", tagColor: "bg-success/10 text-success" },
-      { id: "10", title: "Wireframe user flow", tag: "Design", tagColor: "bg-primary/10 text-primary" },
-    ],
-  },
+// Kolom dasar (Hanya struktur, datanya ditarik dari DB)
+const baseColumns = [
+  { id: "backlog", title: "Backlog", color: "bg-muted-foreground" },
+  { id: "todo", title: "To Do", color: "bg-warning" },
+  { id: "progress", title: "In Progress", color: "bg-primary" },
+  { id: "review", title: "Review", color: "bg-warning" },
+  { id: "done", title: "Done", color: "bg-success" },
 ];
 
 export default function KanbanPage() {
-  const [columnsData, setColumnsData] = useState<Column[]>(initialColumns);
+  const [columnsData, setColumnsData] = useState<Column[]>(
+    baseColumns.map(col => ({ ...col, tasks: [] }))
+  );
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const { toast } = useToast();
 
-  // --- HANDLER DRAG & DROP ---
-  const onDragEnd = (result: DropResult) => {
-    const { source, destination } = result;
+  // --- FETCH DATA & REAL-TIME LISTENER ---
+  useEffect(() => {
+    fetchTasks();
 
-    // Jika task di-drop di luar area droppable
-    if (!destination) return;
+    const channel = supabase.channel('kanban-room')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kanban_tasks' }, () => {
+        // Jika ada yang bergeser dari device lain, fetch ulang agar rapi
+        fetchTasks();
+      })
+      .subscribe();
 
-    // Jika task di-drop di posisi yang sama persis
-    if (source.droppableId === destination.droppableId && source.index === destination.index) {
-      return;
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  const fetchTasks = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('kanban_tasks')
+        .select('*')
+        .order('position', { ascending: true });
+
+      if (error) throw error;
+
+      if (data) {
+        // Format penamaan kolom DB ke UI React
+        const formattedTasks: Task[] = data.map(t => ({
+          ...t,
+          tagColor: t.tag_color,
+          dueDate: t.due_date,
+        }));
+
+        // Kelompokkan task ke masing-masing kolom
+        const populatedColumns = baseColumns.map(col => ({
+          ...col,
+          tasks: formattedTasks.filter(t => t.column_id === col.id)
+        }));
+        
+        setColumnsData(populatedColumns);
+      }
+    } catch (err: any) {
+      console.error("Fetch Kanban Error:", err);
+    } finally {
+      setIsLoading(false);
     }
-
-    // Cari index kolom asal dan tujuan
-    const sourceColIndex = columnsData.findIndex((col) => col.id === source.droppableId);
-    const destColIndex = columnsData.findIndex((col) => col.id === destination.droppableId);
-
-    const sourceCol = columnsData[sourceColIndex];
-    const destCol = columnsData[destColIndex];
-
-    const sourceTasks = [...sourceCol.tasks];
-    const destTasks = sourceCol === destCol ? sourceTasks : [...destCol.tasks];
-
-    // Hapus task dari kolom asal
-    const [removedTask] = sourceTasks.splice(source.index, 1);
-    
-    // Masukkan task ke kolom tujuan
-    destTasks.splice(destination.index, 0, removedTask);
-
-    // Update state
-    const newColumnsData = [...columnsData];
-    newColumnsData[sourceColIndex] = { ...sourceCol, tasks: sourceTasks };
-    if (sourceCol !== destCol) {
-      newColumnsData[destColIndex] = { ...destCol, tasks: destTasks };
-    }
-
-    setColumnsData(newColumnsData);
   };
 
-  // --- HANDLER ADD TASK ---
-  const handleAddTask = (columnId: string) => {
-    const newTask: Task = {
-      id: `task-${Date.now()}`, // ID Unik
-      title: "New Task",
+  // --- HANDLER DRAG & DROP (Menyimpan ke Database) ---
+  const onDragEnd = async (result: DropResult) => {
+    const { source, destination, draggableId } = result;
+
+    if (!destination) return;
+    if (source.droppableId === destination.droppableId && source.index === destination.index) return;
+
+    // Kloning state untuk Optimistic UI Update (Biar UI instan berubah sebelum DB selesai)
+    const newCols = [...columnsData];
+    const sourceColIndex = newCols.findIndex(c => c.id === source.droppableId);
+    const destColIndex = newCols.findIndex(c => c.id === destination.droppableId);
+    const sourceTasks = [...newCols[sourceColIndex].tasks];
+    const destTasks = source.droppableId === destination.droppableId ? sourceTasks : [...newCols[destColIndex].tasks];
+
+    // Angkat task
+    const [movedTask] = sourceTasks.splice(source.index, 1);
+    
+    // --- MENGHITUNG POSISI BARU (LexoRank Sederhana) ---
+    let newPosition = 1000;
+    if (destTasks.length === 0) {
+      newPosition = 1000; // Jika kolom kosong
+    } else if (destination.index === 0) {
+      newPosition = destTasks[0].position - 1000; // Taruh di paling atas
+    } else if (destination.index === destTasks.length) {
+      newPosition = destTasks[destTasks.length - 1].position + 1000; // Taruh di paling bawah
+    } else {
+      // Taruh di tengah-tengah dua kartu
+      const prevPos = destTasks[destination.index - 1].position;
+      const nextPos = destTasks[destination.index].position;
+      newPosition = (prevPos + nextPos) / 2; 
+    }
+
+    movedTask.position = newPosition;
+    movedTask.column_id = destination.droppableId;
+    
+    // Masukkan task ke tujuan
+    destTasks.splice(destination.index, 0, movedTask);
+
+    // Update UI Lokal
+    newCols[sourceColIndex].tasks = sourceTasks;
+    if (source.droppableId !== destination.droppableId) {
+      newCols[destColIndex].tasks = destTasks;
+    }
+    setColumnsData(newCols);
+
+    // Update Database di belakang layar
+    const { error } = await supabase
+      .from('kanban_tasks')
+      .update({ column_id: destination.droppableId, position: newPosition })
+      .eq('id', draggableId);
+
+    if (error) {
+      toast({ title: "Sync Error", description: "Gagal menyimpan posisi ke server.", variant: "destructive" });
+      fetchTasks(); // Kembalikan ke posisi awal jika gagal
+    }
+  };
+
+  // --- HANDLER ADD NEW TASK (Simpan ke DB) ---
+  const handleAddTask = async (columnId: string) => {
+    const colIndex = columnsData.findIndex(c => c.id === columnId);
+    const targetColTasks = columnsData[colIndex].tasks;
+    
+    // Taruh di paling bawah
+    const newPos = targetColTasks.length > 0 
+      ? targetColTasks[targetColTasks.length - 1].position + 1000 
+      : 1000;
+
+    const newTaskDB = {
+      column_id: columnId,
+      title: "New Draft Task",
       tag: "Draft",
-      tagColor: "bg-secondary text-secondary-foreground",
+      tag_color: "bg-secondary text-secondary-foreground",
+      position: newPos
     };
 
-    setColumnsData((prev) =>
-      prev.map((col) => {
-        if (col.id === columnId) {
-          return { ...col, tasks: [...col.tasks, newTask] };
-        }
-        return col;
-      })
-    );
+    const { error } = await supabase.from('kanban_tasks').insert([newTaskDB]);
+    
+    if (error) {
+      toast({ title: "Error", description: "Gagal menambah tugas baru.", variant: "destructive" });
+    } else {
+      toast({ title: "Tugas Ditambahkan", description: "Tugas baru tersimpan ke database!" });
+      // Real-time listener di atas akan otomatis me-refresh layar Anda!
+    }
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full relative">
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="absolute inset-0 z-50 bg-background/50 backdrop-blur-sm flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      )}
+
       {/* Header */}
       <div className="p-6 pb-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -141,7 +191,7 @@ export default function KanbanPage() {
           <p className="text-muted-foreground mt-1">Track and manage your project tasks visually.</p>
         </div>
         <motion.button
-          onClick={() => handleAddTask("todo")} // Default tambah ke To Do
+          onClick={() => handleAddTask("todo")} 
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
           className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium shadow-primary-glow"
@@ -157,9 +207,7 @@ export default function KanbanPage() {
             {columnsData.map((col, colIdx) => (
               <motion.div
                 key={col.id}
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: colIdx * 0.08 }}
+                initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: colIdx * 0.08 }}
                 className="w-80 flex flex-col shrink-0"
               >
                 {/* Column Header */}
@@ -182,9 +230,7 @@ export default function KanbanPage() {
                     <div
                       {...provided.droppableProps}
                       ref={provided.innerRef}
-                      className={`flex-1 space-y-3 overflow-y-auto pb-4 transition-colors rounded-xl ${
-                        snapshot.isDraggingOver ? "bg-muted/50" : ""
-                      }`}
+                      className={`flex-1 space-y-3 overflow-y-auto pb-4 transition-colors rounded-xl ${snapshot.isDraggingOver ? "bg-muted/50" : ""}`}
                     >
                       {col.tasks.map((task, taskIdx) => (
                         <Draggable key={task.id} draggableId={task.id} index={taskIdx}>
@@ -206,9 +252,7 @@ export default function KanbanPage() {
                                     {task.tag}
                                   </span>
                                   {task.priority === "high" && (
-                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-destructive/10 text-destructive uppercase">
-                                      High
-                                    </span>
+                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-destructive/10 text-destructive uppercase">High</span>
                                   )}
                                 </div>
                                 <h4 className="text-sm font-medium text-foreground mb-3 leading-snug">{task.title}</h4>
@@ -217,20 +261,14 @@ export default function KanbanPage() {
                                     A
                                   </div>
                                   <div className="flex items-center gap-3 text-muted-foreground text-xs">
-                                    {task.comments && (
-                                      <span className="flex items-center gap-1">
-                                        <MessageSquare className="h-3 w-3" /> {task.comments}
-                                      </span>
+                                    {task.comments > 0 && (
+                                      <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" /> {task.comments}</span>
                                     )}
-                                    {task.attachments && (
-                                      <span className="flex items-center gap-1">
-                                        <Paperclip className="h-3 w-3" /> {task.attachments}
-                                      </span>
+                                    {task.attachments > 0 && (
+                                      <span className="flex items-center gap-1"><Paperclip className="h-3 w-3" /> {task.attachments}</span>
                                     )}
                                     {task.dueDate && (
-                                      <span className="flex items-center gap-1">
-                                        <Clock className="h-3 w-3" /> {task.dueDate}
-                                      </span>
+                                      <span className="flex items-center gap-1"><Clock className="h-3 w-3" /> {task.dueDate}</span>
                                     )}
                                   </div>
                                 </div>
@@ -241,7 +279,6 @@ export default function KanbanPage() {
                       ))}
                       {provided.placeholder}
                       
-                      {/* Tombol Add Task dipindah ke dalam Droppable agar posisinya pas */}
                       <button 
                         onClick={() => handleAddTask(col.id)}
                         className="w-full py-2.5 rounded-xl border-2 border-dashed border-border text-muted-foreground hover:text-primary hover:border-primary/50 transition-all flex items-center justify-center gap-2 text-sm font-medium mt-3"
@@ -257,7 +294,6 @@ export default function KanbanPage() {
         </DragDropContext>
       </div>
 
-      {/* Task Slideover */}
       <TaskSlideover
         open={!!selectedTask}
         onClose={() => setSelectedTask(null)}
