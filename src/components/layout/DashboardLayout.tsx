@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 
 const navItems = [
-  { icon: Home, label: "Dashboard", path: "/" },
+  { icon: Home, label: "Dashboard", path: "/dashboard" },
   { icon: BarChart3, label: "Analytics", path: "/analytics" },
   { icon: Kanban, label: "Project Board", path: "/kanban" },
   { icon: Calendar, label: "Calendar", path: "/calendar" },

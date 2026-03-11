@@ -68,10 +68,14 @@ export default function LandingPage() {
       <motion.div initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.4 }} className="max-w-6xl mx-auto px-6 mb-32">
         <div className="relative rounded-2xl overflow-hidden border border-[#0f2ab3]/10 shadow-2xl bg-white aspect-[16/9] w-full flex items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
           {/* Ganti div ini dengan tag <img> asli jika Anda sudah punya screenshot aplikasinya */}
-          <div className="text-center opacity-40">
+          <div>
+            <img src="./assets/DashboardPreview" />
+          </div>
+          
+          {/* <div className="text-center opacity-40">
              <BarChart3 className="w-20 h-20 mx-auto mb-4" style={{ color: brandColor }} />
              <p className="text-2xl font-bold text-slate-400">Dashboard UI Preview</p>
-          </div>
+          </div> */}
           <div className="absolute inset-0 bg-gradient-to-t from-[#fcfcfd]/80 to-transparent"></div>
         </div>
       </motion.div>
