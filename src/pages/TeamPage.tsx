@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Download, Plus, Edit, Trash2, Shield, Eye, FileEdit, X, Loader2 } from "lucide-react";
+import { Search, Download, Plus, Edit, Trash2, Shield, Eye, FileEdit, X, Loader2, Mail } from "lucide-react";
 import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
@@ -12,10 +12,11 @@ interface TeamMember {
   name: string;
   email: string;
   role: string;
-  status: string;
+  status: string; // 'Active' (sudah join) atau 'Pending' (masih diundang)
   date_added: string;
   initials: string;
   color: string;
+  is_invite: boolean; // Penanda apakah ini dari tabel invitations
 }
 
 const roleIcons: Record<string, any> = {
@@ -37,6 +38,7 @@ export default function TeamPage() {
   
   // --- DATABASE STATES ---
   const [members, setMembers] = useState<TeamMember[]>([]);
+  const [companyId, setCompanyId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
 
   // --- FILTER & PAGINATION STATES ---
@@ -54,31 +56,74 @@ export default function TeamPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editTargetId, setEditTargetId] = useState<string | null>(null);
   const [formData, setFormData] = useState({ name: "", email: "", role: "Viewer", status: "Active" });
+  const [isSaving, setIsSaving] = useState(false);
 
-  // --- FETCH & REAL-TIME SUPABASE ---
-  useEffect(() => {
-    const fetchMembers = async () => {
-      setIsLoading(true);
-      const { data, error } = await supabase.from('team_members').select('*').order('created_at', { ascending: false });
-      if (error) console.error("Error fetching members:", error);
-      else if (data) setMembers(data);
+  // --- FETCH DATA (GABUNGAN PROFIL & UNDANGAN) ---
+  const fetchMembers = async () => {
+    setIsLoading(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: profile } = await supabase.from('user_profiles').select('company_id').eq('id', user.id).single();
+      
+      if (profile) {
+        setCompanyId(profile.company_id);
+        
+        // 1. Ambil Karyawan Aktif
+        const { data: activeProfiles } = await supabase.from('user_profiles').select('*').eq('company_id', profile.company_id);
+        
+        // 2. Ambil Undangan Pending
+        const { data: pendingInvites } = await supabase.from('invitations').select('*').eq('company_id', profile.company_id).eq('status', 'pending');
+
+        const combinedData: TeamMember[] = [];
+
+        // Format Karyawan Aktif
+        if (activeProfiles) {
+          activeProfiles.forEach((p: any) => {
+            const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Unknown User';
+            combinedData.push({
+              id: p.id,
+              name: fullName,
+              email: p.email || "No Email",
+              role: p.role === 'owner' ? 'Admin' : 'Viewer', // Mapping sementara
+              status: "Active",
+              date_added: new Date(p.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
+              initials: fullName.substring(0, 2).toUpperCase(),
+              color: avatarColors[Math.floor(Math.random() * avatarColors.length)],
+              is_invite: false
+            });
+          });
+        }
+
+        // Format Undangan Pending
+        if (pendingInvites) {
+          pendingInvites.forEach((inv: any) => {
+            combinedData.push({
+              id: inv.id,
+              name: "Pending Invite",
+              email: inv.email,
+              role: "Viewer", 
+              status: "Pending",
+              date_added: new Date(inv.created_at).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
+              initials: "@",
+              color: "bg-warning",
+              is_invite: true
+            });
+          });
+        }
+
+        setMembers(combinedData);
+      }
+    } catch (error) {
+      console.error("Error fetching members:", error);
+    } finally {
       setIsLoading(false);
-    };
+    }
+  };
 
+  useEffect(() => {
     fetchMembers();
-
-    const channel = supabase.channel('team-room')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'team_members' }, (payload) => {
-        setMembers((current) => {
-          if (payload.eventType === 'INSERT') return [payload.new as TeamMember, ...current];
-          if (payload.eventType === 'DELETE') return current.filter(m => m.id !== payload.old.id);
-          if (payload.eventType === 'UPDATE') return current.map(m => m.id === payload.new.id ? payload.new as TeamMember : m);
-          return current;
-        });
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
   }, []);
 
   // --- FILTER & PAGINATION LOGIC ---
@@ -100,7 +145,6 @@ export default function TeamPage() {
     setSelectedEmails([]);
   };
 
-  // --- CHECKBOX LOGIC ---
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) setSelectedEmails(paginatedMembers.map(m => m.email));
     else setSelectedEmails([]);
@@ -110,30 +154,32 @@ export default function TeamPage() {
     setSelectedEmails(prev => prev.includes(email) ? prev.filter(e => e !== email) : [...prev, email]);
   };
 
-  // --- CRUD LOGIC ---
+  // --- CRUD LOGIC (SESUAI B2B SAAS) ---
   const handleDelete = async () => {
     if (deleteTarget) {
-      const { error } = await supabase.from('team_members').delete().eq('id', deleteTarget.id);
-      
-      if (error) {
-        toast({ title: "Error", description: "Failed to delete member.", variant: "destructive" });
+      setIsLoading(true);
+      if (deleteTarget.is_invite) {
+        // Hapus undangan jika statusnya pending
+        await supabase.from('invitations').delete().eq('id', deleteTarget.id);
       } else {
-        toast({ title: "Member removed", description: "Team member has been successfully removed." });
-        
-        // 🚀 SUNTIKAN NOTIFIKASI: HAPUS MEMBER
-        await logActivity({
-          user: "You",
-          action: "removed a team member:",
-          target: deleteTarget.name,
-          type: "warning",
-          iconName: "AlertTriangle",
-          iconBg: "bg-destructive/10 text-destructive"
-        });
-
-        setSelectedEmails(prev => prev.filter(e => e !== deleteTarget.email));
-        if (paginatedMembers.length === 1 && currentPage > 1) setCurrentPage(currentPage - 1);
+        // Cabut akses karyawan dari perusahaan (Set company_id jadi null)
+        await supabase.from('user_profiles').update({ company_id: null }).eq('id', deleteTarget.id);
       }
+      
+      toast({ title: "Member removed", description: "Access has been successfully revoked." });
+      
+      await logActivity({
+        user: "You",
+        action: "removed a team member:",
+        target: deleteTarget.email,
+        type: "warning",
+        iconName: "AlertTriangle",
+        iconBg: "bg-destructive/10 text-destructive"
+      });
+
+      setSelectedEmails(prev => prev.filter(e => e !== deleteTarget.email));
       setDeleteTarget(null);
+      fetchMembers(); // Refresh data
     }
   };
 
@@ -150,70 +196,38 @@ export default function TeamPage() {
   };
 
   const handleSaveMember = async () => {
-    if (!formData.name.trim() || !formData.email.trim()) {
-      toast({ title: "Error", description: "Name and email are required.", variant: "destructive" });
+    if (!formData.email.trim()) {
+      toast({ title: "Error", description: "Email is required.", variant: "destructive" });
       return;
     }
 
-    const initials = formData.name.split(" ").map(n => n[0]).join("").substring(0, 2).toUpperCase();
+    setIsSaving(true);
     
     if (editTargetId) {
-      // Edit mode (Update ke Supabase)
-      const { error } = await supabase.from('team_members').update({
-        name: formData.name,
-        email: formData.email,
-        role: formData.role,
-        status: formData.status,
-        initials: initials
-      }).eq('id', editTargetId);
-
-      if (error) {
-        toast({ title: "Error", description: error.message, variant: "destructive" });
-      } else {
-        toast({ title: "Member updated", description: "Team member details updated successfully." });
-        
-        // 🚀 SUNTIKAN NOTIFIKASI: UPDATE MEMBER
-        await logActivity({
-          user: "You",
-          action: "updated role/status for",
-          target: formData.name,
-          type: "success",
-          iconName: "CheckCircle",
-          iconBg: "bg-info/10 text-info"
-        });
-      }
+      // Fitur Edit (Abaikan sementara untuk MVP SaaS, atau update Role jika ada tabel Role khusus)
+      toast({ title: "Updated", description: "Role changes are not fully implemented in DB yet." });
     } else {
-      // Add mode (Insert ke Supabase)
+      // Add mode (Buat Undangan Baru)
       if (members.some(m => m.email === formData.email)) {
-        toast({ title: "Email exists", description: "A member with this email already exists.", variant: "destructive" });
+        toast({ title: "Exists", description: "User or invite with this email already exists.", variant: "destructive" });
+        setIsSaving(false);
         return;
       }
 
-      const randomColor = avatarColors[Math.floor(Math.random() * avatarColors.length)];
-      const newDate = new Date().toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
-      
-      const newMemberPayload = {
-        name: formData.name,
-        email: formData.email,
-        role: formData.role,
-        status: formData.status,
-        date_added: newDate,
-        initials: initials,
-        color: randomColor
-      };
-      
-      const { error } = await supabase.from('team_members').insert([newMemberPayload]);
+      const { error } = await supabase.from('invitations').insert({
+        company_id: companyId,
+        email: formData.email
+      });
       
       if (error) {
         toast({ title: "Error", description: error.message, variant: "destructive" });
       } else {
-        toast({ title: "Member added", description: "New team member has been successfully added." });
+        toast({ title: "Invite Sent", description: `An invitation has been sent to ${formData.email}.` });
         
-        // 🚀 SUNTIKAN NOTIFIKASI: TAMBAH MEMBER BARU
         await logActivity({
           user: "You",
-          action: "invited a new team member:",
-          target: formData.name,
+          action: "invited a new colleague:",
+          target: formData.email,
           type: "invite",
           iconName: "AtSign",
           iconBg: "bg-primary/10 text-primary",
@@ -222,7 +236,9 @@ export default function TeamPage() {
       }
     }
     
+    setIsSaving(false);
     setIsModalOpen(false);
+    fetchMembers(); // Refresh UI
   };
 
   return (
@@ -237,7 +253,7 @@ export default function TeamPage() {
             <Download className="h-4 w-4" /> Export
           </button>
           <motion.button onClick={handleOpenAdd} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-medium shadow-primary-glow text-sm">
-            <Plus className="h-4 w-4" /> Add Member
+            <Mail className="h-4 w-4" /> Invite Colleague
           </motion.button>
         </div>
       </header>
@@ -267,7 +283,6 @@ export default function TeamPage() {
               <option>Status: All</option>
               <option>Active</option>
               <option>Pending</option>
-              <option>Inactive</option>
             </select>
           </div>
         </div>
@@ -283,7 +298,7 @@ export default function TeamPage() {
                 <th className="py-4 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider">User</th>
                 <th className="py-4 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Role</th>
                 <th className="py-4 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
-                <th className="py-4 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Date Added</th>
+                <th className="py-4 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Date Joined</th>
                 <th className="py-4 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-right">Actions</th>
               </tr>
             </thead>
@@ -297,7 +312,7 @@ export default function TeamPage() {
                 </tr>
               ) : (
                 paginatedMembers.map((m, i) => {
-                  const RoleIcon = roleIcons[m.role] || Eye; // Fallback icon
+                  const RoleIcon = roleIcons[m.role] || Eye;
 
                   return (
                     <motion.tr key={m.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }} className={`group hover:bg-muted/50 transition-colors ${selectedEmails.includes(m.email) ? "bg-primary/5" : ""}`}>
@@ -306,7 +321,7 @@ export default function TeamPage() {
                       </td>
                       <td className="py-5 px-6">
                         <div className="flex items-center gap-4">
-                          <div className={`w-10 h-10 rounded-full ${m.color || 'bg-primary'} bg-opacity-20 flex items-center justify-center font-bold text-sm text-foreground`}>
+                          <div className={`w-10 h-10 rounded-full ${m.color} bg-opacity-20 flex items-center justify-center font-bold text-sm ${m.is_invite ? 'text-warning' : 'text-foreground'}`}>
                             {m.initials}
                           </div>
                           <div>
@@ -363,52 +378,53 @@ export default function TeamPage() {
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={handleDelete}
-        title="Remove Member?"
-        itemName={deleteTarget?.name}
-        description="This user will lose access to all projects and documents immediately."
+        title={deleteTarget?.is_invite ? "Cancel Invitation?" : "Remove Member?"}
+        itemName={deleteTarget?.email}
+        description={deleteTarget?.is_invite ? "This email will no longer be able to join your workspace." : "This user will lose access to all projects immediately."}
       />
 
-      {/* Add / Edit Member Modal Dinamis */}
+      {/* Invite Member Modal */}
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsModalOpen(false)} className="absolute inset-0 bg-background/80 backdrop-blur-sm" />
             <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative bg-card w-full max-w-md rounded-2xl border border-border shadow-2xl overflow-hidden z-10">
-              <div className="p-6 border-b border-border flex justify-between items-center">
-                <h2 className="text-xl font-bold text-foreground">{editTargetId ? "Edit Team Member" : "Add New Member"}</h2>
+              <div className="p-6 border-b border-border flex justify-between items-center bg-muted/30">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                    <Mail className="w-5 h-5" />
+                  </div>
+                  <h2 className="text-xl font-bold text-foreground">{editTargetId ? "Edit Member Access" : "Invite Colleague"}</h2>
+                </div>
                 <button onClick={() => setIsModalOpen(false)} className="p-1 text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
               </div>
+              
               <div className="p-6 space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">Full Name</label>
-                  <input type="text" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})} placeholder="e.g. John Doe" className="w-full bg-muted/50 border border-border focus:border-primary focus:ring-1 focus:ring-primary rounded-xl px-4 py-2.5 text-sm outline-none transition-all text-foreground" />
-                </div>
+                {!editTargetId && (
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Send an invitation. When they sign up with this email, they will automatically join your company workspace.
+                  </p>
+                )}
+
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-1.5">Email Address</label>
-                  <input type="email" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} disabled={!!editTargetId} placeholder="john@company.com" className="w-full bg-muted/50 border border-border focus:border-primary focus:ring-1 focus:ring-primary rounded-xl px-4 py-2.5 text-sm outline-none transition-all text-foreground disabled:opacity-50 disabled:cursor-not-allowed" />
+                  <input type="email" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} disabled={!!editTargetId} placeholder="colleague@company.com" className="w-full bg-muted/50 border border-border focus:border-primary focus:ring-1 focus:ring-primary rounded-xl px-4 py-2.5 text-sm outline-none transition-all text-foreground disabled:opacity-50 disabled:cursor-not-allowed" />
                 </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-1.5">Role</label>
-                    <select value={formData.role} onChange={(e) => setFormData({...formData, role: e.target.value})} className="w-full bg-muted/50 border border-border focus:border-primary rounded-xl px-4 py-2.5 text-sm outline-none text-foreground appearance-none">
-                      <option value="Admin">Admin</option>
-                      <option value="Editor">Editor</option>
-                      <option value="Viewer">Viewer</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-foreground mb-1.5">Status</label>
-                    <select value={formData.status} onChange={(e) => setFormData({...formData, status: e.target.value})} className="w-full bg-muted/50 border border-border focus:border-primary rounded-xl px-4 py-2.5 text-sm outline-none text-foreground appearance-none">
-                      <option value="Active">Active</option>
-                      <option value="Pending">Pending</option>
-                      <option value="Inactive">Inactive</option>
-                    </select>
-                  </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-foreground mb-1.5">Assign Role</label>
+                  <select value={formData.role} onChange={(e) => setFormData({...formData, role: e.target.value})} className="w-full bg-muted/50 border border-border focus:border-primary rounded-xl px-4 py-2.5 text-sm outline-none text-foreground appearance-none">
+                    <option value="Admin">Admin</option>
+                    <option value="Editor">Editor</option>
+                    <option value="Viewer">Viewer</option>
+                  </select>
                 </div>
-                <div className="pt-4 flex justify-end gap-3">
+                
+                <div className="pt-4 flex justify-end gap-3 border-t border-border mt-6">
                   <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
-                  <button onClick={handleSaveMember} className="px-5 py-2.5 bg-primary text-primary-foreground text-sm font-medium rounded-xl hover:opacity-90 transition-opacity">
-                    {editTargetId ? "Save Changes" : "Add Member"}
+                  <button onClick={handleSaveMember} disabled={isSaving} className="px-5 py-2.5 bg-primary text-primary-foreground text-sm font-medium rounded-xl flex items-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50">
+                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : (editTargetId ? <Save className="w-4 h-4" /> : <Mail className="w-4 h-4" />)}
+                    {editTargetId ? "Save Changes" : "Send Invite"}
                   </button>
                 </div>
               </div>
