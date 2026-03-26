@@ -9,35 +9,63 @@ import { logActivity } from "../lib/activityLogger";
 interface CalendarEvent {
   id: string;
   title: string;
-  time: string; // "HH:MM"
-  duration: number; // in hours
+  time: string;
+  duration: number;
   color: string;
   description?: string;
-  dateStr: string; // FORMAT: "YYYY-MM-DD"
+  dateStr: string;
 }
 
 // --- CALENDAR UTILS ---
 const daysOfWeek = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 const fullDaysOfWeek = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
-const generateCalendarDays = () => {
+// Fungsi untuk mendapatkan "Hari Ini" dalam format YYYY-MM-DD sesuai zona waktu lokal
+const getLocalTodayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+// Fungsi dinamis untuk membuat grid kalender berdasarkan bulan yang dipilih
+const generateCalendarDays = (baseDateStr: string) => {
+  const [y, m] = baseDateStr.split('-').map(Number);
+  const baseDate = new Date(y, m - 1, 1);
+  
+  const year = baseDate.getFullYear();
+  const month = baseDate.getMonth();
+  const firstDayOfMonth = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const daysInPrevMonth = new Date(year, month, 0).getDate();
+  
   const days = [];
-  for (let i = 28; i <= 30; i++) {
-    days.push({ day: i, month: 8, prev: true, dateStr: `2023-09-${String(i).padStart(2, '0')}` });
+  
+  for (let i = firstDayOfMonth - 1; i >= 0; i--) {
+    const dayNum = daysInPrevMonth - i;
+    const prevM = month === 0 ? 12 : month;
+    const prevY = month === 0 ? year - 1 : year;
+    days.push({ day: dayNum, month: prevM, prev: true, dateStr: `${prevY}-${String(prevM).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}` });
   }
-  for (let i = 1; i <= 31; i++) {
-    days.push({ day: i, month: 9, prev: false, dateStr: `2023-10-${String(i).padStart(2, '0')}` });
+  
+  for (let i = 1; i <= daysInMonth; i++) {
+    days.push({ day: i, month: month + 1, prev: false, dateStr: `${year}-${String(month + 1).padStart(2, '0')}-${String(i).padStart(2, '0')}` });
   }
-  days.push({ day: 1, month: 10, prev: true, dateStr: `2023-11-01` });
+  
+  const remainingCells = (Math.ceil(days.length / 7) * 7) - days.length;
+  for(let i = 1; i <= remainingCells; i++) {
+     const nextM = month === 11 ? 1 : month + 2;
+     const nextY = month === 11 ? year + 1 : year;
+     days.push({ day: i, month: nextM, prev: true, dateStr: `${nextY}-${String(nextM).padStart(2, '0')}-${String(i).padStart(2, '0')}` });
+  }
   return days;
 };
 
-const calendarDays = generateCalendarDays();
 const hours = Array.from({ length: 10 }, (_, i) => `${String(i + 8).padStart(2, '0')}:00`);
 
 export default function CalendarPage() {
   const { toast } = useToast();
-  const [selectedDateStr, setSelectedDateStr] = useState("2023-10-24");
+  
+  // STATE DINAMIS BERBASIS HARI INI
+  const [selectedDateStr, setSelectedDateStr] = useState<string>(getLocalTodayStr());
   const [viewMode, setViewMode] = useState<"Day" | "Week" | "Month">("Week");
   
   // --- DATABASE STATES ---
@@ -51,7 +79,7 @@ export default function CalendarPage() {
   
   // --- FORM STATES ---
   const [newEventTitle, setNewEventTitle] = useState("");
-  const [newEventDateStr, setNewEventDateStr] = useState("2023-10-24");
+  const [newEventDateStr, setNewEventDateStr] = useState<string>(getLocalTodayStr());
   const [newEventTime, setNewEventTime] = useState("09:00");
   const [newEventDuration, setNewEventDuration] = useState(1);
   const [newEventColor, setNewEventColor] = useState("bg-primary");
@@ -65,7 +93,6 @@ export default function CalendarPage() {
       if (error) {
         console.error("Gagal menarik jadwal:", error);
       } else if (data) {
-        // Mapping kolom DB (date_str) ke interface UI (dateStr)
         const formatted = data.map((d: any) => ({
           id: d.id,
           title: d.title,
@@ -85,17 +112,9 @@ export default function CalendarPage() {
     const channel = supabase.channel('calendar-room')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events' }, (payload) => {
         setAllEvents((current) => {
-          if (payload.eventType === 'INSERT') {
-            const newEv = { ...payload.new, dateStr: payload.new.date_str };
-            return [...current, newEv as CalendarEvent];
-          }
-          if (payload.eventType === 'DELETE') {
-            return current.filter(e => e.id !== payload.old.id);
-          }
-          if (payload.eventType === 'UPDATE') {
-            const updatedEv = { ...payload.new, dateStr: payload.new.date_str };
-            return current.map(e => e.id === payload.new.id ? (updatedEv as CalendarEvent) : e);
-          }
+          if (payload.eventType === 'INSERT') return [...current, { ...payload.new, dateStr: payload.new.date_str } as CalendarEvent];
+          if (payload.eventType === 'DELETE') return current.filter(e => e.id !== payload.old.id);
+          if (payload.eventType === 'UPDATE') return current.map(e => e.id === payload.new.id ? { ...payload.new, dateStr: payload.new.date_str } as CalendarEvent : e);
           return current;
         });
       })
@@ -104,18 +123,24 @@ export default function CalendarPage() {
     return () => { supabase.removeChannel(channel); };
   }, []);
 
-  // --- DERIVED DATA ---
+  // --- DERIVED DATA & DINAMIS ---
+  const calendarDays = useMemo(() => generateCalendarDays(selectedDateStr), [selectedDateStr]);
+  
+  // Menghitung string Bulan Tahun dinamis (contoh: "October 2023")
+  const selectedDateObj = new Date(`${selectedDateStr}T00:00:00`);
+  const monthYearStr = selectedDateObj.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
   const getDayInfo = (dateStr: string) => {
-    const dateObj = new Date(dateStr);
+    const dateObj = new Date(`${dateStr}T00:00:00`);
     return { dayNum: dateObj.getDate(), dayName: fullDaysOfWeek[dateObj.getDay()] };
   };
 
   const currentWeekDays = useMemo(() => {
-    const selectedDate = new Date(selectedDateStr);
-    const dayOfWeek = selectedDate.getDay();
-    const diffToMonday = selectedDate.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
+    const sd = new Date(`${selectedDateStr}T00:00:00`);
+    const dayOfWeek = sd.getDay();
+    const diffToMonday = sd.getDate() - dayOfWeek + (dayOfWeek === 0 ? -6 : 1);
     
-    const weekStart = new Date(selectedDate.setDate(diffToMonday));
+    const weekStart = new Date(sd.setDate(diffToMonday));
     const week = [];
     for (let i = 0; i < 7; i++) {
       const d = new Date(weekStart);
@@ -126,13 +151,26 @@ export default function CalendarPage() {
   }, [selectedDateStr]);
 
   const upcomingEvents = useMemo(() => {
+    const todayTime = new Date(`${getLocalTodayStr()}T00:00:00`).getTime();
     return [...allEvents]
       .sort((a, b) => new Date(`${a.dateStr}T${a.time}`).getTime() - new Date(`${b.dateStr}T${b.time}`).getTime())
-      .filter(e => new Date(`${e.dateStr}T${e.time}`).getTime() >= new Date("2023-10-23T00:00").getTime()) // Menampilkan dari tgl aktif ke depan
+      .filter(e => new Date(`${e.dateStr}T${e.time}`).getTime() >= todayTime) 
       .slice(0, 4);
   }, [allEvents]);
 
   // --- HANDLERS ---
+  const handlePrevMonth = () => {
+    const [y, m] = selectedDateStr.split('-').map(Number);
+    const prev = new Date(y, m - 2, 1);
+    setSelectedDateStr(`${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, '0')}-01`);
+  };
+
+  const handleNextMonth = () => {
+    const [y, m] = selectedDateStr.split('-').map(Number);
+    const next = new Date(y, m, 1);
+    setSelectedDateStr(`${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-01`);
+  };
+
   const handleOpenCreateForm = (specificDateStr?: string) => {
     setEditingEventId(null);
     setNewEventTitle("");
@@ -165,80 +203,40 @@ export default function CalendarPage() {
       time: newEventTime,
       duration: Number(newEventDuration),
       color: newEventColor,
-      description: "Managed via Xenith App Calendar.",
+      description: "Managed via NexusFlow Calendar.",
     };
 
     if (editingEventId) {
-      // UPDATE KE DB
       const { error } = await supabase.from('calendar_events').update(eventPayload).eq('id', editingEventId);
-      if (error) {
-        toast({ title: "Error", description: error.message, variant: "destructive" });
-      } else {
+      if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+      else {
         toast({ title: "Success", description: "Jadwal berhasil diperbarui." });
-        
-        // 🚀 SUNTIKAN NOTIFIKASI: JADWAL DIUPDATE
-        await logActivity({
-          user: "You",
-          action: "updated the schedule for",
-          target: newEventTitle,
-          type: "success",
-          iconName: "CheckCircle",
-          iconBg: "bg-info/10 text-info"
-        });
+        await logActivity({ user: "You", action: "updated the schedule for", target: newEventTitle, type: "success", iconName: "CheckCircle", iconBg: "bg-info/10 text-info" });
       }
     } else {
-      // INSERT KE DB
       const { error } = await supabase.from('calendar_events').insert([eventPayload]);
-      if (error) {
-        toast({ title: "Error", description: error.message, variant: "destructive" });
-      } else {
+      if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+      else {
         toast({ title: "Success", description: "Jadwal baru ditambahkan." });
-        
-        // 🚀 SUNTIKAN NOTIFIKASI: JADWAL BARU
-        await logActivity({
-          user: "You",
-          action: "scheduled a new event:",
-          target: newEventTitle,
-          message: `Set for ${newEventDateStr} at ${newEventTime}`,
-          type: "invite",
-          iconName: "AtSign",
-          iconBg: "bg-primary/10 text-primary"
-        });
+        await logActivity({ user: "You", action: "scheduled a new event:", target: newEventTitle, message: `Set for ${newEventDateStr} at ${newEventTime}`, type: "invite", iconName: "AtSign", iconBg: "bg-primary/10 text-primary", hasAction: true });
       }
     }
-
     setIsFormModalOpen(false);
   };
 
-  // --- HANDLER HAPUS JADWAL ---
   const handleDeleteEvent = async (id: string) => {
-    // Ambil nama judul sebelum dihapus untuk notifikasi
     const eventTitle = selectedEvent?.title || "an event"; 
-    
     const { error } = await supabase.from('calendar_events').delete().eq('id', id);
-    
-    if (error) {
-      toast({ title: "Error", description: "Gagal menghapus jadwal.", variant: "destructive" });
-    } else {
+    if (error) toast({ title: "Error", description: "Gagal menghapus jadwal.", variant: "destructive" });
+    else {
       toast({ title: "Terhapus", description: "Jadwal berhasil dihapus dari sistem." });
-      
-      // 🚀 SUNTIKAN NOTIFIKASI: JADWAL DIBATALKAN
-      await logActivity({
-        user: "You",
-        action: "canceled the event",
-        target: eventTitle,
-        type: "warning",
-        iconName: "AlertTriangle",
-        iconBg: "bg-destructive/10 text-destructive"
-      });
-      
+      await logActivity({ user: "You", action: "canceled the event", target: eventTitle, type: "warning", iconName: "AlertTriangle", iconBg: "bg-destructive/10 text-destructive" });
       setSelectedEvent(null);
     }
   };
 
   return (
     <div className="flex flex-col lg:flex-row h-full overflow-hidden relative">
-      {/* Loading Overlay */}
       {isLoading && (
         <div className="absolute inset-0 z-50 bg-background/50 backdrop-blur-sm flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
@@ -247,22 +245,17 @@ export default function CalendarPage() {
 
       {/* --- SIDEBAR --- */}
       <aside className="w-full lg:w-72 border-b lg:border-b-0 lg:border-r border-border bg-card flex flex-col shrink-0 p-6 overflow-y-auto">
-        <motion.button
-          onClick={() => handleOpenCreateForm()}
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          className="w-full bg-primary hover:opacity-90 text-primary-foreground font-medium py-2.5 px-4 rounded-xl shadow-primary-glow transition-all flex items-center justify-center gap-2 mb-8"
-        >
+        <motion.button onClick={() => handleOpenCreateForm()} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="w-full bg-primary hover:opacity-90 text-primary-foreground font-medium py-2.5 px-4 rounded-xl shadow-primary-glow transition-all flex items-center justify-center gap-2 mb-8">
           <Plus className="h-4 w-4" /> Create Event
         </motion.button>
 
-        {/* Mini Calendar */}
+        {/* Mini Calendar Dinamis */}
         <div className="mb-8">
           <div className="flex justify-between items-center mb-4 px-1">
-            <span className="font-semibold text-foreground">October 2023</span>
+            <span className="font-semibold text-foreground">{monthYearStr}</span>
             <div className="flex gap-2">
-              <button className="text-muted-foreground hover:text-foreground transition-colors"><ChevronLeft className="h-4 w-4" /></button>
-              <button className="text-muted-foreground hover:text-foreground transition-colors"><ChevronRight className="h-4 w-4" /></button>
+              <button onClick={handlePrevMonth} className="text-muted-foreground hover:text-foreground transition-colors p-1"><ChevronLeft className="h-4 w-4" /></button>
+              <button onClick={handleNextMonth} className="text-muted-foreground hover:text-foreground transition-colors p-1"><ChevronRight className="h-4 w-4" /></button>
             </div>
           </div>
           <div className="grid grid-cols-7 gap-y-3 gap-x-1 text-center text-xs text-muted-foreground mb-2">
@@ -287,10 +280,9 @@ export default function CalendarPage() {
               </span>
             ))}
           </div>
-          <p className="text-[10px] text-muted-foreground text-center mt-2">Double-click a date to add an event.</p>
         </div>
 
-        {/* Upcoming Events */}
+        {/* Upcoming Events Dinamis */}
         <div>
           <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-4 px-1">Upcoming Events</h3>
           <div className="space-y-3">
@@ -301,17 +293,12 @@ export default function CalendarPage() {
                 upcomingEvents.map((event, i) => {
                   const dayInfo = getDayInfo(event.dateStr);
                   return (
-                    <motion.div
-                      key={event.id}
-                      onClick={() => setSelectedEvent(event)}
-                      initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} transition={{ delay: i * 0.05 }}
-                      className="group flex items-start gap-3 p-2 rounded-xl hover:bg-muted transition-colors cursor-pointer"
-                    >
+                    <motion.div key={event.id} onClick={() => setSelectedEvent(event)} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} transition={{ delay: i * 0.05 }} className="group flex items-start gap-3 p-2 rounded-xl hover:bg-muted transition-colors cursor-pointer">
                       <div className={`w-1 h-full min-h-[2.5rem] ${event.color} rounded-full shrink-0`} />
                       <div className="min-w-0 flex-1">
                         <h4 className="text-sm font-medium text-foreground group-hover:text-primary transition-colors truncate">{event.title}</h4>
                         <p className="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5 font-medium">
-                          Oct {dayInfo.dayNum} <span className="mx-1">•</span> <Clock className="h-3 w-3" /> {event.time}
+                          {dayInfo.dayName}, {dayInfo.dayNum} <span className="mx-1">•</span> <Clock className="h-3 w-3" /> {event.time}
                         </p>
                       </div>
                     </motion.div>
@@ -327,35 +314,21 @@ export default function CalendarPage() {
       <main className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
           <h1 className="text-2xl font-bold text-foreground tracking-tight">
-            {viewMode === "Month" ? "October 2023" : 
-             viewMode === "Day" ? `${getDayInfo(selectedDateStr).dayName}, Oct ${getDayInfo(selectedDateStr).dayNum}, 2023` : 
-             `Week of Oct ${currentWeekDays[0].dayNum} - ${currentWeekDays[6].dayNum}, 2023`}
+            {viewMode === "Month" ? monthYearStr : 
+             viewMode === "Day" ? `${getDayInfo(selectedDateStr).dayName}, ${monthYearStr.split(' ')[0]} ${getDayInfo(selectedDateStr).dayNum}, ${monthYearStr.split(' ')[1]}` : 
+             `Week of ${monthYearStr.split(' ')[0]} ${currentWeekDays[0].dayNum} - ${currentWeekDays[6].dayNum}`}
           </h1>
           <div className="flex bg-muted rounded-xl p-1 relative">
             {(["Day", "Week", "Month"] as const).map((v) => (
-              <button
-                key={v}
-                onClick={() => setViewMode(v)}
-                className={`relative z-10 px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${
-                  viewMode === v ? "text-foreground" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                {viewMode === v && (
-                  <motion.div layoutId="view-mode-tab" className="absolute inset-0 bg-card shadow-sm rounded-lg -z-10" transition={{ type: "spring", stiffness: 300, damping: 30 }} />
-                )}
+              <button key={v} onClick={() => setViewMode(v)} className={`relative z-10 px-4 py-1.5 text-sm font-medium rounded-lg transition-colors ${viewMode === v ? "text-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+                {viewMode === v && <motion.div layoutId="view-mode-tab" className="absolute inset-0 bg-card shadow-sm rounded-lg -z-10" transition={{ type: "spring", stiffness: 300, damping: 30 }} />}
                 {v}
               </button>
             ))}
           </div>
         </div>
 
-        {/* CONDITIONAL CALENDAR VIEWS */}
-        <motion.div
-          key={viewMode}
-          initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }}
-          className="border border-border rounded-2xl overflow-hidden bg-card shadow-sm"
-        >
-          {/* VIEW: WEEK OR DAY */}
+        <motion.div key={viewMode} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.3 }} className="border border-border rounded-2xl overflow-hidden bg-card shadow-sm">
           {(viewMode === "Week" || viewMode === "Day") && (
             <>
               <div className={`grid ${viewMode === "Week" ? "grid-cols-7" : "grid-cols-1"} border-b border-border`}>
@@ -366,30 +339,19 @@ export default function CalendarPage() {
                   </div>
                 ))}
               </div>
-
               <div className="relative" style={{ height: "600px" }}>
                 {hours.map((h, i) => (
-                  <div key={h} className="absolute w-full border-t border-border/50 text-[10px] text-muted-foreground pl-2" style={{ top: `${i * 60}px` }}>
-                    {h}
-                  </div>
+                  <div key={h} className="absolute w-full border-t border-border/50 text-[10px] text-muted-foreground pl-2" style={{ top: `${i * 60}px` }}>{h}</div>
                 ))}
-
                 <div className={`grid ${viewMode === "Week" ? "grid-cols-7" : "grid-cols-1"} h-full absolute inset-0 pl-10 pr-2`}>
                   {(viewMode === "Week" ? currentWeekDays : currentWeekDays.filter(d => d.dateStr === selectedDateStr)).map((day) => {
                     const dayEvents = allEvents.filter(e => e.dateStr === day.dateStr);
-                    
                     return (
                       <div key={day.dateStr} className="relative border-r border-border/50 last:border-r-0" onDoubleClick={() => handleOpenCreateForm(day.dateStr)}>
                         {dayEvents.map((ev, ei) => {
                           const startHour = parseInt(ev.time.split(":")[0]) - 8;
                           return (
-                            <motion.div
-                              key={ev.id}
-                              onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }}
-                              initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 + ei * 0.05 }}
-                              className={`absolute mx-1 ${ev.color} text-white rounded-xl p-2.5 text-xs font-medium cursor-pointer hover:shadow-md hover:opacity-90 transition-all border border-black/10 overflow-hidden`}
-                              style={{ top: `${startHour * 60}px`, height: `${ev.duration * 60 - 4}px`, left: "4px", right: "4px" }}
-                            >
+                            <motion.div key={ev.id} onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }} initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.1 + ei * 0.05 }} className={`absolute mx-1 ${ev.color} text-white rounded-xl p-2.5 text-xs font-medium cursor-pointer hover:shadow-md hover:opacity-90 transition-all border border-black/10 overflow-hidden`} style={{ top: `${startHour * 60}px`, height: `${ev.duration * 60 - 4}px`, left: "4px", right: "4px" }}>
                               <span className="block font-bold truncate">{ev.title}</span>
                               <span className="block font-normal opacity-90 mt-0.5">{ev.time}</span>
                             </motion.div>
@@ -403,47 +365,24 @@ export default function CalendarPage() {
             </>
           )}
 
-          {/* VIEW: MONTH */}
           {viewMode === "Month" && (
             <div className="h-[600px] flex flex-col">
               <div className="grid grid-cols-7 border-b border-border bg-muted/20">
-                {daysOfWeek.map((d) => (
-                  <div key={d} className="text-center py-3 text-sm font-semibold text-muted-foreground border-r border-border last:border-r-0">{d}</div>
-                ))}
+                {daysOfWeek.map((d) => <div key={d} className="text-center py-3 text-sm font-semibold text-muted-foreground border-r border-border last:border-r-0">{d}</div>)}
               </div>
               <div className="grid grid-cols-7 flex-1">
                 {calendarDays.map((d, i) => {
                   const dayEvents = allEvents.filter(e => e.dateStr === d.dateStr);
-                  
                   return (
-                    <div 
-                      key={i} 
-                      onClick={() => !d.prev && setSelectedDateStr(d.dateStr)}
-                      onDoubleClick={() => !d.prev && handleOpenCreateForm(d.dateStr)}
-                      className={`border-r border-b border-border/50 p-2 min-h-[100px] transition-colors hover:bg-muted/30 cursor-pointer overflow-hidden ${d.prev ? "bg-muted/10 text-muted-foreground/40" : "text-foreground"}`}
-                    >
-                      <span className={`inline-flex items-center justify-center w-6 h-6 text-xs font-medium rounded-full ${d.dateStr === selectedDateStr && !d.prev ? "bg-primary text-primary-foreground" : ""}`}>
-                        {d.day}
-                      </span>
-                      
+                    <div key={i} onClick={() => !d.prev && setSelectedDateStr(d.dateStr)} onDoubleClick={() => !d.prev && handleOpenCreateForm(d.dateStr)} className={`border-r border-b border-border/50 p-2 min-h-[100px] transition-colors hover:bg-muted/30 cursor-pointer overflow-hidden ${d.prev ? "bg-muted/10 text-muted-foreground/40" : "text-foreground"}`}>
+                      <span className={`inline-flex items-center justify-center w-6 h-6 text-xs font-medium rounded-full ${d.dateStr === selectedDateStr && !d.prev ? "bg-primary text-primary-foreground" : ""}`}>{d.day}</span>
                       <div className="mt-1 space-y-1">
                         {dayEvents.slice(0, 2).map((ev) => {
                            let textClass = "text-white"; 
                            if (ev.color === "bg-warning" || ev.color === "bg-muted") textClass = "text-slate-800"; 
-
-                          return (
-                            <div 
-                              key={ev.id} 
-                              onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }}
-                              className={`${ev.color} ${textClass} text-[10px] font-bold px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity`}
-                            >
-                              {ev.time.split(":")[0]}:00 {ev.title}
-                            </div>
-                          );
+                          return <div key={ev.id} onClick={(e) => { e.stopPropagation(); setSelectedEvent(ev); }} className={`${ev.color} ${textClass} text-[10px] font-bold px-1.5 py-0.5 rounded truncate cursor-pointer hover:opacity-80 transition-opacity`}>{ev.time.split(":")[0]}:00 {ev.title}</div>;
                         })}
-                        {dayEvents.length > 2 && (
-                          <div className="text-[10px] text-muted-foreground font-medium px-1">+{dayEvents.length - 2} more</div>
-                        )}
+                        {dayEvents.length > 2 && <div className="text-[10px] text-muted-foreground font-medium px-1">+{dayEvents.length - 2} more</div>}
                       </div>
                     </div>
                   );
@@ -455,8 +394,6 @@ export default function CalendarPage() {
       </main>
 
       {/* --- MODALS AREA --- */}
-      
-      {/* 1. Modal Event Details */}
       <AnimatePresence>
         {selectedEvent && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -472,9 +409,7 @@ export default function CalendarPage() {
                   <div className="flex items-center gap-3 text-sm text-foreground">
                     <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center text-muted-foreground"><Clock className="w-4 h-4" /></div>
                     <div>
-                      <p className="font-medium text-foreground">
-                        {getDayInfo(selectedEvent.dateStr).dayName}, Oct {getDayInfo(selectedEvent.dateStr).dayNum}
-                      </p>
+                      <p className="font-medium text-foreground">{getDayInfo(selectedEvent.dateStr).dayName}, {getDayInfo(selectedEvent.dateStr).dayNum}</p>
                       <p className="text-muted-foreground">{selectedEvent.time} ({selectedEvent.duration} hr)</p>
                     </div>
                   </div>
@@ -487,9 +422,7 @@ export default function CalendarPage() {
                       <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center text-muted-foreground"><CalendarIcon className="w-4 h-4" /></div>
                       <p className="font-medium text-foreground">My Calendar</p>
                     </div>
-                    <button onClick={() => handleDeleteEvent(selectedEvent.id)} className="text-destructive hover:bg-destructive/10 p-2 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold">
-                      <Trash2 className="w-4 h-4" /> Delete
-                    </button>
+                    <button onClick={() => handleDeleteEvent(selectedEvent.id)} className="text-destructive hover:bg-destructive/10 p-2 rounded-lg transition-colors flex items-center gap-1 text-xs font-semibold"><Trash2 className="w-4 h-4" /> Delete</button>
                   </div>
                 </div>
                 <div className="mt-8 flex gap-3">
@@ -502,16 +435,13 @@ export default function CalendarPage() {
         )}
       </AnimatePresence>
 
-      {/* 2. Modal Create / Edit Form */}
       <AnimatePresence>
         {isFormModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsFormModalOpen(false)} className="absolute inset-0 bg-background/80 backdrop-blur-sm" />
             <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative bg-card w-full max-w-md rounded-2xl border border-border shadow-2xl overflow-hidden z-10">
               <div className="p-6 border-b border-border flex justify-between items-center">
-                <h2 className="text-xl font-bold text-foreground">
-                  {editingEventId ? "Edit Event" : "Create New Event"}
-                </h2>
+                <h2 className="text-xl font-bold text-foreground">{editingEventId ? "Edit Event" : "Create New Event"}</h2>
                 <button onClick={() => setIsFormModalOpen(false)} className="p-1 text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
               </div>
               <div className="p-6 space-y-4">
@@ -522,7 +452,8 @@ export default function CalendarPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-1.5">Date</label>
-                    <input type="date" min="2023-10-01" max="2023-11-01" value={newEventDateStr} onChange={(e) => setNewEventDateStr(e.target.value)} className="w-full bg-muted/50 border border-border focus:border-primary rounded-xl px-4 py-2.5 text-sm outline-none text-foreground" />
+                    {/* Pembatasan min/max dihapus agar bisa bebas input tanggal */}
+                    <input type="date" value={newEventDateStr} onChange={(e) => setNewEventDateStr(e.target.value)} className="w-full bg-muted/50 border border-border focus:border-primary rounded-xl px-4 py-2.5 text-sm outline-none text-foreground" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-1.5">Time</label>
