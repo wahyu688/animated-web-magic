@@ -7,7 +7,21 @@
 
 NexusFlow is a comprehensive B2B SaaS platform designed for modern enterprises. It provides seamless management for analytics, team collaboration, and scheduling, wrapped in a highly interactive and elegant user interface.
 
-🌐 **Live Demo:** [Link Vercel Anda di sini]
+---
+## CREATED BY 😋
+**Wahyu A. Barmawi - 2802497800**
+
+**Leandra Belva Varissa Perwira Negara - 2802499876**
+
+**Andhani Tasya Assalwa Siti Nur Putri - 2802470799**
+
+**Jeff Adriel Ernesto Panjaitan - 2802487964**
+
+**Victor Jhonathan Harianto - 2802447310**
+
+---
+
+🌐 **Live Demo:** [https://dashboard-sofeng.online/]
 
 ---
 
