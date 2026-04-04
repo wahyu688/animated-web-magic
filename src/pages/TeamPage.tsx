@@ -12,11 +12,11 @@ interface TeamMember {
   name: string;
   email: string;
   role: string;
-  status: string; // 'Active' (sudah join) atau 'Pending' (masih diundang)
+  status: string; 
   date_added: string;
   initials: string;
   color: string;
-  is_invite: boolean; // Penanda apakah ini dari tabel invitations
+  is_invite: boolean; 
 }
 
 const roleIcons: Record<string, any> = {
@@ -154,7 +154,7 @@ export default function TeamPage() {
     setSelectedEmails(prev => prev.includes(email) ? prev.filter(e => e !== email) : [...prev, email]);
   };
 
-  // --- CRUD LOGIC (SESUAI B2B SAAS) ---
+  // --- CRUD LOGIC ---
   const handleDelete = async () => {
     if (deleteTarget) {
       setIsLoading(true);
@@ -204,10 +204,9 @@ export default function TeamPage() {
     setIsSaving(true);
     
     if (editTargetId) {
-      // Fitur Edit (Abaikan sementara untuk MVP SaaS, atau update Role jika ada tabel Role khusus)
       toast({ title: "Updated", description: "Role changes are not fully implemented in DB yet." });
     } else {
-      // Add mode (Buat Undangan Baru)
+      // Add mode
       if (members.some(m => m.email === formData.email)) {
         toast({ title: "Exists", description: "User or invite with this email already exists.", variant: "destructive" });
         setIsSaving(false);

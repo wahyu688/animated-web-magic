@@ -41,18 +41,15 @@ export default function PricingPage() {
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
 
   return (
-    // DI SINI PERUBAHANNYA: pt-32 diubah menjadi pt-10 (Jauh lebih rapat ke atas)
     <div className="min-h-screen bg-background-light pt-10 pb-20">
       
       {/* Tombol Back to Home */}
-      {/* DI SINI PERUBAHANNYA: mb-8 diubah menjadi mb-4 agar lebih dekat ke judul */}
       <div className="max-w-6xl mx-auto px-6 mb-4">
         <Link to="/" className="text-sm font-semibold text-muted-foreground hover:text-primary transition-colors flex items-center gap-2 w-max">
           ← Back to Home
         </Link>
       </div>
 
-      {/* DI SINI PERUBAHANNYA: Hapus padding top (pt) tambahan agar tidak double padding */}
       <div className="px-6 lg:px-10 pb-10 max-w-6xl mx-auto">
         
         {/* Header */}

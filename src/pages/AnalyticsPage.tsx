@@ -123,13 +123,13 @@ export default function AnalyticsPage() {
   const maxChartValue = Math.max(
     ...chartRawData.map(d => d.current_val), 
     ...chartRawData.map(d => d.previous_val), 
-    1 // Hindari pembagian dengan 0
+    1 
   );
 
   const width = 1200;
   const height = 350;
 
-  // Generate garis (path) dan titik (points) secara dinamis
+  // Generate garis (path) dan titik (points) 
   const currentYearGraph = generateSmoothPath(chartRawData, 'current_val', width, height, maxChartValue);
   const previousYearGraph = generateSmoothPath(chartRawData, 'previous_val', width, height, maxChartValue);
 
@@ -241,7 +241,7 @@ export default function AnalyticsPage() {
                   {hoveredPoint === index && (
                     <line x1={pt.cx} y1={pt.cy} x2={pt.cx} y2={height} stroke="hsl(222 80% 45%)" strokeWidth="1.5" strokeDasharray="4,4" />
                   )}
-                  {/* Titik disembunyikan jika tidak di-hover agar lebih rapi, hanya muncul saat hover (atau bisa biarkan muncul terus) */}
+                  {/* Titik disembunyikan jika tidak di-hover agar lebih rapi, hanya muncul saat hover */}
                   <circle cx={pt.cx} cy={pt.cy} r={hoveredPoint === index ? "8" : "0"} fill="hsl(222 80% 45%)" stroke="white" strokeWidth="3" className="transition-all duration-200" />
                   
                   {hoveredPoint === index && (

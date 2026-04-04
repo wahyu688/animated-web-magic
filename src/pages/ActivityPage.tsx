@@ -127,7 +127,7 @@ export default function ActivityPage() {
 
   // --- HANDLERS (TERSAMBUNG KE DATABASE) ---
   const handleMarkAllRead = async () => {
-    // Update lokal dulu (Optimistic UI)
+    // Optimistic UI
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
     toast({ title: "All marked as read", description: "Your activity feed is all caught up." });
     
@@ -188,7 +188,7 @@ export default function ActivityPage() {
   const handleViewTicket = (e: React.MouseEvent, notification: any) => {
     e.stopPropagation();
     setViewingTicket(notification);
-    handleItemClick(notification.id); // Otomatis mark as read
+    handleItemClick(notification.id);
   };
 
   return (

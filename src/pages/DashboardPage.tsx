@@ -76,7 +76,7 @@ export default function DashboardPage() {
     checkUser();
   }, [navigate]);
 
-  // 2. Fetch Data & Real-Time Listener (CUKUP 1 USE-EFFECT SAJA)
+  // 2. Fetch Data & Real-Time Listener
   useEffect(() => {
     if (!userEmail) return;
 
@@ -85,7 +85,7 @@ export default function DashboardPage() {
         const [pagesRes, trafficRes, kpiRes, chartRes] = await Promise.all([
           supabase.from('top_pages').select('*').order('views', { ascending: false }),
           supabase.from('traffic_sources').select('*').order('pct', { ascending: false }),
-          supabase.from('dashboard_kpis').select('*').limit(1).maybeSingle(), // <--- INI SUDAH DIGANTI maybeSingle()
+          supabase.from('dashboard_kpis').select('*').limit(1).maybeSingle(),
           supabase.from('chart_data').select('*').order('sort_order', { ascending: true })
         ]);
 
@@ -119,10 +119,8 @@ export default function DashboardPage() {
       }
     };
 
-    // Tarik data saat halaman dibuka
     fetchDashboardInfo();
 
-    // Pasang Pendengar Real-Time
     const channel = supabase.channel('dashboard-live-updates')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'traffic_sources' }, fetchDashboardInfo)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'top_pages' }, fetchDashboardInfo)
@@ -135,7 +133,7 @@ export default function DashboardPage() {
     };
   }, [userEmail]);
 
-  // --- MENGHITUNG KORDINAT SVG DINAMIS ---
+  // --- MENGHITUNG KORDINAT SVG ---
   const maxChartValue = Math.max(
     ...chartRawData.map(d => d.current_val || 0), 
     ...chartRawData.map(d => d.previous_val || 0), 

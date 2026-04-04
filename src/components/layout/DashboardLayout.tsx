@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { supabase } from "../../lib/supabase"; // Pastikan path ini benar!
+import { supabase } from "../../lib/supabase";
 import {
   BarChart3, Calendar, ChevronLeft, Home, Kanban,
   Bell, Search, Settings, Users, Zap, CreditCard, Activity, Menu, BookOpen, DollarSign

@@ -18,7 +18,6 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
 
     checkAuth();
 
-    // 2. Pasang pendengar jika tiba-tiba token kedaluwarsa
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       setIsAuthenticated(!!session);
       setIsLoading(false);
@@ -29,16 +28,16 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
     };
   }, []);
 
-  // Jika sedang mengecek sesi ke server, tampilkan animasi Skeleton!
+  // MENAMPILKAN SKELETON ANIMATION
   if (isLoading) {
     return <DashboardSkeleton />;
   }
 
-  // Jika tidak punya tiket login, tendang ke halaman login
+  // Jika tidak punya tiket login, kembali ke halaman login
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
-  // Jika aman, bungkus halamannya dengan Layout Dashboard asli
+  // Jika aman, Langsung di bantu dengan dashboatd layout yang real
   return <DashboardLayout>{children}</DashboardLayout>;
 }

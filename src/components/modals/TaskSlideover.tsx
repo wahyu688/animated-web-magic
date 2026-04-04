@@ -42,7 +42,7 @@ export default function TaskSlideover({ open, onClose, task }: { open: boolean, 
     }
   }, [task]);
 
-  // Fungsi simpan utama ke Supabase
+  // Fungsi simpan ke Supabase
   const handleSaveToDB = async (updatedDesc: string, updatedSubtasks: Subtask[], updatedActivities: Activity[]) => {
     if (!task) return;
     setIsSaving(true);

@@ -2,13 +2,12 @@ import { motion, Variants } from "framer-motion";
 import { Link } from "react-router-dom";
 import { GraduationCap, BookOpen, Database, Users, Code2, Heart, ArrowLeft } from "lucide-react";
 
-// TODO: Silakan ganti nama dan NPM ini dengan data asli teman-teman kelompok Anda!
 const teamMembers = [
-  { name: "Wahyu", role: "Database / Fullstack Developer", npm: "260xxxxxxx" },
-  { name: "Anggota 2", role: "Frontend Developer", npm: "260xxxxxxx" },
-  { name: "Anggota 3", role: "UI/UX Designer", npm: "260xxxxxxx" },
-  { name: "Anggota 4", role: "System Analyst", npm: "260xxxxxxx" },
-  { name: "Anggota 5", role: "Quality Assurance", npm: "260xxxxxxx" },
+  { name: "Wahyu", role: "Database / Fullstack Developer", NIM: "2802497800" },
+  { name: "Anggota 2", role: "Frontend Developer", NIM: "28xxxxxxxx" },
+  { name: "Anggota 3", role: "UI/UX Designer", NIM: "28xxxxxxxx" },
+  { name: "Anggota 4", role: "System Analyst", NIM: "28xxxxxxxx" },
+  { name: "Anggota 5", role: "Quality Assurance", NIM: "28xxxxxxxx" },
 ];
 
 export default function AboutPage() {
@@ -110,7 +109,7 @@ export default function AboutPage() {
                   <h3 className="font-bold text-lg text-foreground mb-1">{member.name}</h3>
                   <p className="text-sm text-primary font-bold mb-2">{member.role}</p>
                   <div className="inline-block px-3 py-1 bg-background border border-border rounded-lg text-xs text-muted-foreground font-mono">
-                    NPM: {member.npm}
+                    NIM: {member.NIM}
                   </div>
                 </div>
               </motion.div>

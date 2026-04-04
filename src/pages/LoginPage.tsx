@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Lock, ArrowRight, Loader2, Github, Chrome, CheckCircle2, AlertTriangle, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
-// --- KOMPONEN POP-UP NOTIFIKASI (Diperbarui: Posisi Kanan Atas & Warna Teks Aman) ---
+// --- KOMPONEN POP-UP NOTIFIKASI ---
 function FloatingAlert({ alert, onClose }: { alert: { type: 'success' | 'error', message: string } | null, onClose: () => void }) {
   return (
     <AnimatePresence>
@@ -27,7 +27,6 @@ function FloatingAlert({ alert, onClose }: { alert: { type: 'success' | 'error',
           ) : (
             <AlertTriangle className="w-5 h-5 text-red-500" />
           )}
-          {/* Warna teks dipaksa gelap/terang agar kontras dengan background */}
           <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
             {alert.message}
           </span>

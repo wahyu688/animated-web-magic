@@ -82,7 +82,7 @@ function GeneralTab({ session }: { session: any }) {
     } else {
       toast({ title: "Profile updated", description: "Your general profile settings have been saved successfully." });
       
-      // 🚀 SUNTIKAN NOTIFIKASI: UPDATE PROFIL
+      // NOTIFIKASI UPDATE PROFILE
       await logActivity({
         user: "You",
         action: "updated your",
@@ -97,8 +97,6 @@ function GeneralTab({ session }: { session: any }) {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
-      // NOTE: Fitur upload asli ke Supabase Storage membutuhkan pembuatan bucket terlebih dahulu.
-      // Untuk saat ini kita simulasikan sukses UI-nya.
       toast({ title: "Photo updated", description: `Successfully selected ${e.target.files[0].name}. (Storage DB not configured yet)` });
     }
   };
@@ -188,12 +186,12 @@ function SecurityTab() {
       toast({ title: "Password updated", description: "Your password has been changed successfully." });
       setPasswords({ new: "", confirm: "" });
 
-      // 🚀 SUNTIKAN NOTIFIKASI: GANTI PASSWORD (Penting untuk keamanan!)
+      // NOTIFIKASI GANTI PASSWORD
       await logActivity({
         user: "You",
         action: "changed your",
         target: "Account Password",
-        type: "warning", // Pakai warna kuning/merah agar terlihat mencolok
+        type: "warning",
         iconName: "AlertTriangle",
         iconBg: "bg-warning/10 text-warning"
       });
@@ -279,7 +277,7 @@ function NotificationsTab({ session }: { session: any }) {
     } else {
       toast({ title: "Preferences saved", description: "Your notification settings have been updated." });
       
-      // 🚀 SUNTIKAN NOTIFIKASI: UPDATE PREFERENSI NOTIFIKASI
+      // NOTIFIKASI UPDATE PREFS
       await logActivity({
         user: "You",
         action: "updated",
@@ -326,8 +324,7 @@ function NotificationsTab({ session }: { session: any }) {
   );
 }
 
-/* ── Billing & Integrations (TETAP STATIS SEPERTI MILIK ANDA) ── */
-// Saya ringkas agar tidak terlalu panjang, tapi logika dan UI-nya 100% milik Anda
+/* ── Billing & Integrations ── */
 function BillingTab() {
   const { toast } = useToast();
   return (

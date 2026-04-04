@@ -145,7 +145,7 @@ export default function KanbanPage() {
       toast({ title: "Sync Error", description: "Gagal menyimpan posisi ke server.", variant: "destructive" });
       fetchTasks(); // Kembalikan ke posisi awal jika gagal
     } else {
-      // 🚀 SUNTIKAN NOTIFIKASI: HANYA JIKA PINDAH KOLOM
+      // NOTIFIKASI
       if (source.droppableId !== destination.droppableId) {
         const destColName = baseColumns.find(c => c.id === destination.droppableId)?.title || "a new column";
         await logActivity({
@@ -186,14 +186,14 @@ export default function KanbanPage() {
     } else {
       toast({ title: "Tugas Ditambahkan", description: "Tugas baru tersimpan ke database!" });
       
-      // 🚀 SUNTIKAN NOTIFIKASI: TASK BARU
+      // NOTIFIKASI TASK BARU
       const colName = baseColumns.find(c => c.id === columnId)?.title || columnId;
       await logActivity({
         user: "You",
         action: "created a new task in",
         target: colName,
         type: "upload",
-        iconName: "GitBranch", // Memakai icon dari IconMap di ActivityPage
+        iconName: "GitBranch", 
         iconBg: "bg-warning/10 text-warning"
       });
     }

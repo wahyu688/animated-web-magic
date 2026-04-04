@@ -4,7 +4,6 @@ import { Repeat, BarChart3, ShieldCheck, Hexagon, Triangle, Circle, Square, Infi
 import dashboardImg from "../DashboardPreview.png";
 
 export default function LandingPage() {
-  // Warna kustom dari desain HTML Anda (diubah ke format arbitrary Tailwind agar langsung jalan)
   const brandColor = "#0f2ab3";
   const bgLight = "#fcfcfd";
 

@@ -4,7 +4,6 @@ import { Save, Loader2, Calculator, Receipt, TrendingUp, CheckCircle2 } from "lu
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 
-// Daftar bulan paten (tidak bergantung pada database)
 const ALL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export default function FinancialPage() {
@@ -56,7 +55,7 @@ export default function FinancialPage() {
     fetchFinanceData();
   }, []);
 
-  // 2. Fungsi Otomatisasi Perhitungan & Simpan (Mendukung Insert & Update)
+  // 2. Fungsi Otomatisasi Perhitungan & Simpan => include dengan insert dan update
   const handleProcessAndSave = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsProcessing(true);
