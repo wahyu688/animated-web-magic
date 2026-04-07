@@ -4,7 +4,7 @@ import { Repeat, BarChart3, ShieldCheck, Hexagon, Triangle, Circle, Square, Infi
 import dashboardImg from "../DashboardPreview.png";
 
 export default function LandingPage() {
-  const brandColor = "#0f2ab3";
+  const brandColor = "#376CDD";
   const bgLight = "#fcfcfd";
 
   return (
