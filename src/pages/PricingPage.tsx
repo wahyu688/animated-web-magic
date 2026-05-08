@@ -41,17 +41,65 @@ export default function PricingPage() {
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
 
   return (
-    <div className="min-h-screen bg-background-light pt-10 pb-20">
-      
-      {/* Tombol Back to Home */}
-      <div className="max-w-6xl mx-auto px-6 mb-4">
-        <Link to="/" className="text-sm font-semibold text-muted-foreground hover:text-primary transition-colors flex items-center gap-2 w-max">
-          ← Back to Home
-        </Link>
-      </div>
+      <div className="min-h-screen bg-[#fcfcfd] text-slate-900">          
+      {/* --- NAVBAR --- */}
+      <nav
+        className="fixed top-0 left-0 right-0 z-50 border-b border-[#0f2ab3]/5"
+        style={{
+          background: "rgba(252,252,253,0.8)",
+          backdropFilter: "blur(12px)",
+        }}
+      >
+        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
 
-      <div className="px-6 lg:px-10 pb-10 max-w-6xl mx-auto">
-        
+          <Link to="/" className="flex items-center gap-3">
+
+            <img
+              src="/logo.png"
+              alt="NexusFlow Logo"
+              className="w-11 h-11 object-contain"
+            />
+
+            <span className="text-xl font-black tracking-tight text-[#376CDD]">
+              NEXUSFLOW
+            </span>
+
+          </Link>
+
+          <div className="hidden md:flex items-center gap-10">
+            <Link
+              to="/"
+              className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
+            >
+              Home
+            </Link>
+
+            <Link
+              to="/pricing"
+              className="text-sm font-bold text-[#376CDD]"
+            >
+              Pricing
+            </Link>
+
+            <Link
+              to="/about"
+              className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
+            >
+              About
+            </Link>
+          </div>
+
+          <Link
+            to="/login"
+            className="text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-lg transition-all hover:-translate-y-0.5 bg-[#376CDD]"
+          >
+            Get Started
+          </Link>
+
+        </div>
+      </nav>
+
+<       div className="px-6 lg:px-10 pb-10 pt-36 max-w-6xl mx-auto">        
         {/* Header */}
         <div className="text-center mb-12">
           <motion.h1

@@ -22,15 +22,65 @@ export default function AboutPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background p-6 md:p-12 lg:p-16">
+    <div className="min-h-screen bg-[#fcfcfd] text-slate-900">
       <div className="max-w-5xl mx-auto space-y-10">
         
-        {/* Tombol Back */}
-        <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }}>
-          <Link to="/" className="inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-primary transition-colors bg-card hover:bg-muted px-4 py-2.5 rounded-xl border border-border shadow-sm">
-            <ArrowLeft className="w-4 h-4" /> Back to Home
-          </Link>
-        </motion.div>
+        {/* --- NAVBAR --- */}
+        <nav
+          className="fixed top-0 left-0 right-0 z-50 border-b border-[#0f2ab3]/5"
+          style={{
+            background: "rgba(252,252,253,0.8)",
+            backdropFilter: "blur(12px)",
+          }}
+        >
+          <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+
+            <Link to="/" className="flex items-center gap-3">
+
+              <img
+                src="/logo.png"
+                alt="NexusFlow Logo"
+                className="w-11 h-11 object-contain"
+              />
+
+              <span className="text-xl font-black tracking-tight text-[#376CDD]">
+                NEXUSFLOW
+              </span>
+
+            </Link>
+
+            <div className="hidden md:flex items-center gap-10">
+              <Link
+                to="/"
+                className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
+              >
+                Home
+              </Link>
+
+              <Link
+                to="/pricing"
+                className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
+              >
+                Pricing
+              </Link>
+
+              <Link
+                to="/about"
+                className="text-sm font-bold text-[#376CDD]"
+              >
+                About
+              </Link>
+            </div>
+
+            <Link
+              to="/login"
+              className="text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-lg transition-all hover:-translate-y-0.5 bg-[#376CDD]"
+            >
+              Get Started
+            </Link>
+
+          </div>
+        </nav>
         
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="text-center max-w-3xl mx-auto mb-16">
