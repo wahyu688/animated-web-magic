@@ -234,38 +234,64 @@ export default function LoginPage() {
 
               <form onSubmit={handleAuth} className="space-y-5">
                 <div className="space-y-1.5">
-                  <label className="block text-sm font-semibold text-foreground">Email</label>
+
+                  {!isLogin && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: "auto" }}
+                      className="grid grid-cols-2 gap-4 mb-4"
+                    >
+                      <div className="space-y-1.5">
+                        <label className="block text-sm font-semibold text-foreground">
+                          First Name
+                        </label>
+
+                        <input
+                          type="text"
+                          value={firstName}
+                          onChange={(e) => setFirstName(e.target.value)}
+                          required={!isLogin}
+                          placeholder="John"
+                          className="w-full px-4 py-3 bg-card border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-foreground"
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="block text-sm font-semibold text-foreground">
+                          Last Name
+                        </label>
+
+                        <input
+                          type="text"
+                          value={lastName}
+                          onChange={(e) => setLastName(e.target.value)}
+                          required={!isLogin}
+                          placeholder="Doe"
+                          className="w-full px-4 py-3 bg-card border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-foreground"
+                        />
+                      </div>
+                    </motion.div>
+                  )}
+
+                  <label className="block text-sm font-semibold text-foreground">
+                    Email
+                  </label>
+
                   <div className="relative">
+
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    {!isLogin && (
-                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: "auto" }} className="grid grid-cols-2 gap-4 mb-4">
-                        <div className="space-y-1.5">
-                          <label className="block text-sm font-semibold text-foreground">First Name</label>
-                          <input 
-                            type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} required={!isLogin}
-                            placeholder="John" 
-                            className="w-full px-4 py-3 bg-card border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-foreground"
-                          />
-                        </div>
-                        <div className="space-y-1.5">
-                          <label className="block text-sm font-semibold text-foreground">Last Name</label>
-                          <input 
-                            type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} required={!isLogin}
-                            placeholder="Doe" 
-                            className="w-full px-4 py-3 bg-card border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-foreground"
-                          />
-                        </div>
-                      </motion.div>
-                    )}
-                    <input 
-                      type="email" 
+
+                    <input
+                      type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="name@company.com" 
+                      placeholder="name@company.com"
                       required
                       className="w-full pl-10 pr-4 py-3 bg-card border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all text-foreground shadow-sm"
                     />
+
                   </div>
+
                 </div>
 
                 <div className="space-y-1.5">
