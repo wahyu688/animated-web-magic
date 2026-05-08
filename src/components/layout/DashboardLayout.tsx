@@ -88,9 +88,20 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     fetchUnreadCount();
 
     const channel = supabase.channel('navbar-notifications-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `company_id=eq.${companyId}` }, () => {
-        fetchUnreadCount(); 
-      })
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'notifications',
+          filter: `company_id=eq.${companyId}`
+        },
+        () => {
+          setUnreadCount((prev) => prev + 1);
+
+          fetchUnreadCount();
+        }
+      )
       .subscribe((status, error) => {
         console.info("[navbar realtime] status:", status, error ?? "");
         if (status === 'SUBSCRIBED') fetchUnreadCount();

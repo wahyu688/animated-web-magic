@@ -391,16 +391,25 @@ export default function TeamPage() {
         description: `${formData.email} berhasil ditambahkan ke workspace.`,
       });
 
-      await logActivity({
-        user: "You",
-        action: "added a team member:",
-        target: formData.email,
-        type: "invite",
-        iconName: "Users",
-        iconBg: "bg-primary/10 text-primary",
-        hasAction: true,
-        companyId,
-      });
+      // INSERT NOTIFICATION
+      await supabase
+        .from("notifications")
+        .insert([
+          {
+            company_id: companyId,
+            type: "invite",
+            user_name: "You",
+            action: "invited",
+            target: formData.email,
+            message: `${formData.email} joined the workspace`,
+            time: "Just now",
+            unread: true,
+            icon_name: "Users",
+            icon_bg: "bg-primary/10 text-primary",
+            has_action: true,
+          },
+        ]);
+
 
       setIsModalOpen(false);
 
