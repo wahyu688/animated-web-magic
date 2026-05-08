@@ -247,53 +247,175 @@ export default function TeamPage() {
 
   const handleSaveMember = async () => {
     if (!companyId) {
-      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+      toast({
+        title: "Company Error",
+        description: "Company context belum tersedia.",
+        variant: "destructive",
+      });
+
       return;
     }
 
     if (!formData.email.trim()) {
-      toast({ title: "Error", description: "Email is required.", variant: "destructive" });
+      toast({
+        title: "Error",
+        description: "Email is required.",
+        variant: "destructive",
+      });
+
       return;
     }
 
     setIsSaving(true);
-    
-    if (editTargetId) {
-      toast({ title: "Updated", description: "Role changes are not fully implemented in DB yet." });
-    } else {
-      // Add mode
-      if (members.some(m => m.email === formData.email)) {
-        toast({ title: "Exists", description: "User or invite with this email already exists.", variant: "destructive" });
-        setIsSaving(false);
+
+    try {
+      // =====================================================
+      // CHECK DUPLICATE
+      // =====================================================
+
+      if (
+        members.some(
+          (m) => m.email.toLowerCase() === formData.email.toLowerCase()
+        )
+      ) {
+        toast({
+          title: "Exists",
+          description: "User already exists in this workspace.",
+          variant: "destructive",
+        });
+
         return;
       }
 
-      const { error } = await supabase.from('invitations').insert({
-        company_id: companyId,
-        email: formData.email
-      });
-      
-      if (error) {
-        toast({ title: "Error", description: error.message, variant: "destructive" });
-      } else {
-        toast({ title: "Invite Sent", description: `An invitation has been sent to ${formData.email}.` });
-        
-        await logActivity({
-          user: "You",
-          action: "invited a new colleague:",
-          target: formData.email,
-          type: "invite",
-          iconName: "AtSign",
-          iconBg: "bg-primary/10 text-primary",
-          hasAction: true,
-          companyId
-        });
+      // =====================================================
+      // FIND REGISTERED USER
+      // =====================================================
+
+      const { data: existingUser, error: userError } = await supabase
+        .from("user_profiles")
+        .select("*")
+        .eq("email", formData.email.toLowerCase())
+        .maybeSingle();
+
+      if (userError) {
+        throw userError;
       }
+
+      // =====================================================
+      // USER BELUM REGISTER
+      // =====================================================
+
+      if (!existingUser) {
+        toast({
+          title: "User Not Found",
+          description:
+            "User harus membuat akun terlebih dahulu sebelum diundang.",
+          variant: "destructive",
+        });
+
+        return;
+      }
+
+      // =====================================================
+      // CHECK EXISTING MEMBER
+      // =====================================================
+
+      const { data: existingMember } = await supabase
+        .from("company_members")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("user_id", existingUser.id)
+        .maybeSingle();
+
+      if (existingMember) {
+        toast({
+          title: "Already Joined",
+          description: "User sudah menjadi member company ini.",
+          variant: "destructive",
+        });
+
+        return;
+      }
+
+      // =====================================================
+      // ROLE MAPPING
+      // =====================================================
+
+      let role = "member";
+
+      if (formData.role === "Admin") {
+        role = "admin";
+      }
+
+      // =====================================================
+      // INSERT COMPANY MEMBER
+      // =====================================================
+
+      const { error: memberError } = await supabase
+        .from("company_members")
+        .insert([
+          {
+            company_id: companyId,
+            user_id: existingUser.id,
+            role,
+            status: "active",
+          },
+        ]);
+
+      if (memberError) {
+        throw memberError;
+      }
+
+      // =====================================================
+      // UPDATE USER PROFILE
+      // =====================================================
+
+      const { error: profileError } = await supabase
+        .from("user_profiles")
+        .update({
+          company_id: companyId,
+          role,
+        })
+        .eq("id", existingUser.id);
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      // =====================================================
+      // SUCCESS
+      // =====================================================
+
+      toast({
+        title: "Member Added",
+        description: `${formData.email} berhasil ditambahkan ke workspace.`,
+      });
+
+      await logActivity({
+        user: "You",
+        action: "added a team member:",
+        target: formData.email,
+        type: "invite",
+        iconName: "Users",
+        iconBg: "bg-primary/10 text-primary",
+        hasAction: true,
+        companyId,
+      });
+
+      setIsModalOpen(false);
+
+      await fetchMembers();
+    } catch (error: any) {
+      console.error("Invite member error:", error);
+
+      toast({
+        title: "Error",
+        description: error?.message || "Failed to add member.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
     }
-    
-    setIsSaving(false);
-    setIsModalOpen(false);
-    await fetchMembers(); // Refresh UI
   };
 
   return (
