@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Plus, MoreHorizontal, MessageSquare, Paperclip, Clock, Loader2 } from "lucide-react";
 import TaskSlideover from "@/components/modals/TaskSlideover"; 
@@ -6,19 +6,41 @@ import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea
 import { supabase } from "../lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { logActivity } from "../lib/activityLogger";
+import { useCompany } from "@/hooks/use-company";
 
 // --- INTERFACES ---
 interface Task {
   id: string;
+  company_id: string;
   column_id: string;
   title: string;
   tag: string;
+  tag_color: string;
   tagColor: string; // Di DB namanya tag_color
-  priority?: "high" | "medium" | "low" | null;
-  comments?: number;
-  attachments?: number;
+  priority: "high" | "medium" | "low" | null;
+  comments: number;
+  attachments: number;
+  due_date: string | null;
   dueDate?: string | null; // Di DB namanya due_date
   position: number;
+  description: string | null;
+  subtasks: Subtask[];
+  activities: Activity[];
+  created_at: string;
+  updated_at: string;
+}
+
+interface Subtask {
+  id: string;
+  title: string;
+  completed: boolean;
+}
+
+interface Activity {
+  id: string;
+  user: string;
+  text: string;
+  date: string;
 }
 
 interface Column {
@@ -43,37 +65,43 @@ export default function KanbanPage() {
   );
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const isMountedRef = useRef(false);
+  const fetchRequestIdRef = useRef(0);
   const { toast } = useToast();
+  const { companyId, isCompanyLoading, companyError } = useCompany();
 
-  // --- FETCH DATA & REAL-TIME LISTENER ---
-  useEffect(() => {
-    fetchTasks();
+  const fetchTasks = useCallback(async (showLoading = false) => {
+    if (!companyId) return;
+    const requestId = ++fetchRequestIdRef.current;
 
-    const channel = supabase.channel('kanban-room')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'kanban_tasks' }, () => {
-        // Jika ada yang bergeser dari device lain, fetch ulang agar rapi
-        fetchTasks();
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, []);
-
-  const fetchTasks = async () => {
     try {
+      if (showLoading) {
+        setIsLoading(true);
+      }
+
       const { data, error } = await supabase
         .from('kanban_tasks')
         .select('*')
+        .eq('company_id', companyId)
         .order('position', { ascending: true });
 
       if (error) throw error;
+      if (!isMountedRef.current || requestId !== fetchRequestIdRef.current) return;
 
       if (data) {
         // Format penamaan kolom DB ke UI React
         const formattedTasks: Task[] = data.map(t => ({
           ...t,
-          tagColor: t.tag_color,
+          tag_color: t.tag_color ?? "bg-secondary text-secondary-foreground",
+          tagColor: t.tag_color ?? "bg-secondary text-secondary-foreground",
+          priority: t.priority ?? null,
+          comments: t.comments ?? 0,
+          attachments: t.attachments ?? 0,
+          due_date: t.due_date ?? null,
           dueDate: t.due_date,
+          description: t.description ?? null,
+          subtasks: t.subtasks ?? [],
+          activities: t.activities ?? [],
         }));
 
         // Kelompokkan task ke masing-masing kolom
@@ -83,30 +111,84 @@ export default function KanbanPage() {
         }));
         
         setColumnsData(populatedColumns);
+        setSelectedTask(currentTask => {
+          if (!currentTask) return currentTask;
+          return formattedTasks.find(task => task.id === currentTask.id) ?? currentTask;
+        });
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error("Fetch Kanban Error:", err);
+      toast({
+        title: "Fetch Error",
+        description: "Gagal memuat data Kanban dari Supabase.",
+        variant: "destructive"
+      });
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current && requestId === fetchRequestIdRef.current) {
+        setIsLoading(false);
+      }
     }
-  };
+  }, [companyId, toast]);
+
+  // --- FETCH DATA & REAL-TIME LISTENER ---
+  useEffect(() => {
+    isMountedRef.current = true;
+    if (!companyId) return;
+    fetchTasks(true);
+
+    const channel = supabase.channel('kanban-tasks-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'kanban_tasks', filter: `company_id=eq.${companyId}` }, (payload) => {
+        console.info("[kanban realtime] change received:", payload.eventType, payload);
+        // Jika ada perubahan dari tab/device lain, fetch ulang agar urutan tetap konsisten.
+        fetchTasks();
+      })
+      .subscribe((status, error) => {
+        console.info("[kanban realtime] status:", status, error ?? "");
+
+        if (status === 'SUBSCRIBED') {
+          fetchTasks();
+        }
+
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.warn("[kanban realtime] disconnected, relying on mutation fetch fallback until websocket recovers.", { status, error });
+        }
+      });
+
+    return () => {
+      isMountedRef.current = false;
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+    };
+  }, [companyId, fetchTasks]);
 
   // --- HANDLER DRAG & DROP (Menyimpan ke Database) ---
   const onDragEnd = async (result: DropResult) => {
+    if (!companyId) {
+      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+      return;
+    }
+
     const { source, destination, draggableId } = result;
 
     if (!destination) return;
     if (source.droppableId === destination.droppableId && source.index === destination.index) return;
 
     // Kloning state untuk Optimistic UI Update
-    const newCols = [...columnsData];
+    const newCols = columnsData.map(col => ({ ...col, tasks: [...col.tasks] }));
     const sourceColIndex = newCols.findIndex(c => c.id === source.droppableId);
     const destColIndex = newCols.findIndex(c => c.id === destination.droppableId);
-    const sourceTasks = [...newCols[sourceColIndex].tasks];
-    const destTasks = source.droppableId === destination.droppableId ? sourceTasks : [...newCols[destColIndex].tasks];
+
+    if (sourceColIndex === -1 || destColIndex === -1) return;
+
+    const sourceTasks = newCols[sourceColIndex].tasks;
 
     // Angkat task
     const [movedTask] = sourceTasks.splice(source.index, 1);
+    if (!movedTask) return;
+
+    const destTasks = source.droppableId === destination.droppableId
+      ? sourceTasks
+      : newCols[destColIndex].tasks;
     
     // --- MENGHITUNG POSISI BARU ---
     let newPosition = 1000;
@@ -135,16 +217,18 @@ export default function KanbanPage() {
     }
     setColumnsData(newCols);
 
-    // Update Database di belakang layar
-    const { error } = await supabase
-      .from('kanban_tasks')
-      .update({ column_id: destination.droppableId, position: newPosition })
-      .eq('id', draggableId);
+    try {
+      // Update Database di belakang layar
+      const { error } = await supabase
+        .from('kanban_tasks')
+        .update({ column_id: destination.droppableId, position: newPosition })
+        .eq('company_id', companyId)
+        .eq('id', draggableId);
 
-    if (error) {
-      toast({ title: "Sync Error", description: "Gagal menyimpan posisi ke server.", variant: "destructive" });
-      fetchTasks(); // Kembalikan ke posisi awal jika gagal
-    } else {
+      if (error) throw error;
+
+      await fetchTasks();
+
       // NOTIFIKASI
       if (source.droppableId !== destination.droppableId) {
         const destColName = baseColumns.find(c => c.id === destination.droppableId)?.title || "a new column";
@@ -155,14 +239,24 @@ export default function KanbanPage() {
           message: `"${movedTask.title}"`,
           type: destination.droppableId === "done" ? "success" : "upload", // Hijau jika masuk Done
           iconName: "CheckCircle",
-          iconBg: destination.droppableId === "done" ? "bg-success/10 text-success" : "bg-primary/10 text-primary"
+          iconBg: destination.droppableId === "done" ? "bg-success/10 text-success" : "bg-primary/10 text-primary",
+          companyId
         });
       }
+    } catch (err) {
+      console.error("Drag Kanban Sync Error:", err);
+      toast({ title: "Sync Error", description: "Gagal menyimpan posisi ke server.", variant: "destructive" });
+      await fetchTasks(); // Kembalikan ke posisi awal jika gagal
     }
   };
 
   // --- HANDLER ADD NEW TASK (Simpan ke DB) ---
   const handleAddTask = async (columnId: string) => {
+    if (!companyId) {
+      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+      return;
+    }
+
     const colIndex = columnsData.findIndex(c => c.id === columnId);
     const targetColTasks = columnsData[colIndex].tasks;
     
@@ -172,39 +266,70 @@ export default function KanbanPage() {
       : 1000;
 
     const newTaskDB = {
+      company_id: companyId,
       column_id: columnId,
       title: "New Draft Task",
       tag: "Draft",
       tag_color: "bg-secondary text-secondary-foreground",
-      position: newPos
+      priority: null,
+      comments: 0,
+      attachments: 0,
+      due_date: null,
+      position: newPos,
+      description: null,
+      subtasks: [],
+      activities: []
     };
 
-    const { error } = await supabase.from('kanban_tasks').insert([newTaskDB]);
-    
-    if (error) {
-      toast({ title: "Error", description: "Gagal menambah tugas baru.", variant: "destructive" });
-    } else {
-      toast({ title: "Tugas Ditambahkan", description: "Tugas baru tersimpan ke database!" });
+    try {
+      const { error } = await supabase
+        .from('kanban_tasks')
+        .insert([newTaskDB])
+        .select('*')
+        .single();
       
-      // NOTIFIKASI TASK BARU
-      const colName = baseColumns.find(c => c.id === columnId)?.title || columnId;
-      await logActivity({
-        user: "You",
-        action: "created a new task in",
-        target: colName,
-        type: "upload",
-        iconName: "GitBranch", 
-        iconBg: "bg-warning/10 text-warning"
-      });
+      if (error) throw error;
+
+      await fetchTasks();
+      toast({ title: "Tugas Ditambahkan", description: "Tugas baru tersimpan ke database!" });
+    } catch (err) {
+      console.error("Insert Kanban Task Error:", err);
+      toast({ title: "Error", description: "Gagal menambah tugas baru.", variant: "destructive" });
+      await fetchTasks();
+      return;
     }
+      
+    // NOTIFIKASI TASK BARU
+    const colName = baseColumns.find(c => c.id === columnId)?.title || columnId;
+    await logActivity({
+      user: "You",
+      action: "created a new task in",
+      target: colName,
+      type: "upload",
+      iconName: "GitBranch", 
+      iconBg: "bg-warning/10 text-warning",
+      companyId
+    });
   };
 
   return (
     <div className="flex flex-col h-full relative">
       {/* Loading Overlay */}
-      {isLoading && (
+      {(isCompanyLoading || (Boolean(companyId) && isLoading)) && (
         <div className="absolute inset-0 z-50 bg-background/50 backdrop-blur-sm flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      )}
+
+      {companyError && (
+        <div className="m-6 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Gagal memuat company context. Silakan refresh atau login ulang.
+        </div>
+      )}
+
+      {!isCompanyLoading && !companyId && !companyError && (
+        <div className="m-6 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+          Company context belum tersedia. Hubungi admin workspace Anda.
         </div>
       )}
 
@@ -322,6 +447,8 @@ export default function KanbanPage() {
         open={!!selectedTask}
         onClose={() => setSelectedTask(null)}
         task={selectedTask}
+        onTaskUpdated={fetchTasks}
+        companyId={companyId}
       />
     </div>
   );

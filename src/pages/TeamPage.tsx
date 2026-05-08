@@ -1,10 +1,11 @@
-import { useState, useMemo, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Search, Download, Plus, Edit, Trash2, Shield, Eye, FileEdit, X, Loader2, Mail, Save } from "lucide-react";
+import { Search, Download, Plus, Edit, Trash2, Shield, Eye, FileEdit, X, Loader2, Mail, Save, type LucideIcon } from "lucide-react";
 import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 import { logActivity } from "../lib/activityLogger";
+import { useCompany } from "@/hooks/use-company";
 
 // --- TYPES & UTILS ---
 interface TeamMember {
@@ -19,7 +20,25 @@ interface TeamMember {
   is_invite: boolean; 
 }
 
-const roleIcons: Record<string, any> = {
+interface UserProfileRow {
+  id: string;
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  role?: string | null;
+  company_id?: string | null;
+  created_at?: string | null;
+}
+
+interface InvitationRow {
+  id: string;
+  company_id: string;
+  email: string;
+  status: string;
+  created_at: string;
+}
+
+const roleIcons: Record<string, LucideIcon> = {
   Admin: Shield,
   Editor: FileEdit,
   Viewer: Eye,
@@ -38,8 +57,9 @@ export default function TeamPage() {
   
   // --- DATABASE STATES ---
   const [members, setMembers] = useState<TeamMember[]>([]);
-  const [companyId, setCompanyId] = useState("");
   const [isLoading, setIsLoading] = useState(true);
+  const isMountedRef = useRef(false);
+  const { companyId, isCompanyLoading, companyError } = useCompany();
 
   // --- FILTER & PAGINATION STATES ---
   const [searchQuery, setSearchQuery] = useState("");
@@ -59,28 +79,25 @@ export default function TeamPage() {
   const [isSaving, setIsSaving] = useState(false);
 
   // --- FETCH DATA (GABUNGAN PROFIL & UNDANGAN) ---
-  const fetchMembers = async () => {
-    setIsLoading(true);
+  const fetchMembers = useCallback(async (showLoading = false) => {
+    if (!companyId) return;
+
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (showLoading) setIsLoading(true);
 
-      const { data: profile } = await supabase.from('user_profiles').select('company_id').eq('id', user.id).single();
+      // 1. Ambil Karyawan Aktif
+      const { data: activeProfiles, error: activeError } = await supabase.from('user_profiles').select('*').eq('company_id', companyId);
       
-      if (profile) {
-        setCompanyId(profile.company_id);
-        
-        // 1. Ambil Karyawan Aktif
-        const { data: activeProfiles } = await supabase.from('user_profiles').select('*').eq('company_id', profile.company_id);
-        
-        // 2. Ambil Undangan Pending
-        const { data: pendingInvites } = await supabase.from('invitations').select('*').eq('company_id', profile.company_id).eq('status', 'pending');
+      // 2. Ambil Undangan Pending
+      const { data: pendingInvites, error: invitesError } = await supabase.from('invitations').select('*').eq('company_id', companyId).eq('status', 'pending');
 
-        const combinedData: TeamMember[] = [];
+      if (activeError || invitesError) throw activeError || invitesError;
+
+      const combinedData: TeamMember[] = [];
 
         // Format Karyawan Aktif
         if (activeProfiles) {
-          activeProfiles.forEach((p: any) => {
+          (activeProfiles as UserProfileRow[]).forEach((p) => {
             const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Unknown User';
             combinedData.push({
               id: p.id,
@@ -98,7 +115,7 @@ export default function TeamPage() {
 
         // Format Undangan Pending
         if (pendingInvites) {
-          pendingInvites.forEach((inv: any) => {
+          (pendingInvites as InvitationRow[]).forEach((inv) => {
             combinedData.push({
               id: inv.id,
               name: "Pending Invite",
@@ -113,18 +130,37 @@ export default function TeamPage() {
           });
         }
 
-        setMembers(combinedData);
-      }
+      if (isMountedRef.current) setMembers(combinedData);
     } catch (error) {
       console.error("Error fetching members:", error);
+      toast({ title: "Fetch Error", description: "Failed to load team members.", variant: "destructive" });
     } finally {
-      setIsLoading(false);
+      if (isMountedRef.current) setIsLoading(false);
     }
-  };
+  }, [companyId, toast]);
 
   useEffect(() => {
-    fetchMembers();
-  }, []);
+    isMountedRef.current = true;
+    if (!companyId) return;
+    fetchMembers(true);
+
+    const channel = supabase.channel('team-members-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'user_profiles', filter: `company_id=eq.${companyId}` }, () => fetchMembers())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'invitations', filter: `company_id=eq.${companyId}` }, () => fetchMembers())
+      .subscribe((status, error) => {
+        console.info("[team realtime] status:", status, error ?? "");
+        if (status === 'SUBSCRIBED') fetchMembers();
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.warn("[team realtime] disconnected; mutation fetch fallback remains active.", { status, error });
+        }
+      });
+
+    return () => {
+      isMountedRef.current = false;
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+    };
+  }, [companyId, fetchMembers]);
 
   // --- FILTER & PAGINATION LOGIC ---
   const filtered = useMemo(() => {
@@ -139,7 +175,7 @@ export default function TeamPage() {
   const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
   const paginatedMembers = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
 
-  const handleFilterChange = (setter: any, value: string) => {
+  const handleFilterChange = (setter: React.Dispatch<React.SetStateAction<string>>, value: string) => {
     setter(value);
     setCurrentPage(1);
     setSelectedEmails([]);
@@ -156,30 +192,44 @@ export default function TeamPage() {
 
   // --- CRUD LOGIC ---
   const handleDelete = async () => {
-    if (deleteTarget) {
-      setIsLoading(true);
-      if (deleteTarget.is_invite) {
-        // Hapus undangan jika statusnya pending
-        await supabase.from('invitations').delete().eq('id', deleteTarget.id);
-      } else {
-        // Cabut akses karyawan dari perusahaan (Set company_id jadi null)
-        await supabase.from('user_profiles').update({ company_id: null }).eq('id', deleteTarget.id);
-      }
-      
-      toast({ title: "Member removed", description: "Access has been successfully revoked." });
-      
-      await logActivity({
-        user: "You",
-        action: "removed a team member:",
-        target: deleteTarget.email,
-        type: "warning",
-        iconName: "AlertTriangle",
-        iconBg: "bg-destructive/10 text-destructive"
-      });
+    if (!companyId) {
+      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+      return;
+    }
 
-      setSelectedEmails(prev => prev.filter(e => e !== deleteTarget.email));
-      setDeleteTarget(null);
-      fetchMembers(); // Refresh data
+    if (deleteTarget) {
+      try {
+        setIsLoading(true);
+        if (deleteTarget.is_invite) {
+          // Hapus undangan jika statusnya pending
+          const { error } = await supabase.from('invitations').delete().eq('company_id', companyId).eq('id', deleteTarget.id);
+          if (error) throw error;
+        } else {
+          // Cabut akses karyawan dari perusahaan (Set company_id jadi null)
+          const { error } = await supabase.from('user_profiles').update({ company_id: null }).eq('company_id', companyId).eq('id', deleteTarget.id);
+          if (error) throw error;
+        }
+        
+        toast({ title: "Member removed", description: "Access has been successfully revoked." });
+        
+        await logActivity({
+          user: "You",
+          action: "removed a team member:",
+          target: deleteTarget.email,
+          type: "warning",
+          iconName: "AlertTriangle",
+          iconBg: "bg-destructive/10 text-destructive",
+          companyId
+        });
+
+        setSelectedEmails(prev => prev.filter(e => e !== deleteTarget.email));
+        setDeleteTarget(null);
+      } catch (error) {
+        console.error("Delete team member error:", error);
+        toast({ title: "Error", description: "Failed to remove team member.", variant: "destructive" });
+      } finally {
+        await fetchMembers(); // Refresh data
+      }
     }
   };
 
@@ -196,6 +246,11 @@ export default function TeamPage() {
   };
 
   const handleSaveMember = async () => {
+    if (!companyId) {
+      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+      return;
+    }
+
     if (!formData.email.trim()) {
       toast({ title: "Error", description: "Email is required.", variant: "destructive" });
       return;
@@ -230,14 +285,15 @@ export default function TeamPage() {
           type: "invite",
           iconName: "AtSign",
           iconBg: "bg-primary/10 text-primary",
-          hasAction: true 
+          hasAction: true,
+          companyId
         });
       }
     }
     
     setIsSaving(false);
     setIsModalOpen(false);
-    fetchMembers(); // Refresh UI
+    await fetchMembers(); // Refresh UI
   };
 
   return (
@@ -259,9 +315,21 @@ export default function TeamPage() {
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-2xl shadow-card border border-border overflow-hidden relative">
         
-        {isLoading && (
+        {(isCompanyLoading || (Boolean(companyId) && isLoading)) && (
           <div className="absolute inset-0 z-10 bg-background/50 backdrop-blur-sm flex items-center justify-center">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
+          </div>
+        )}
+
+        {companyError && (
+          <div className="m-6 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            Gagal memuat company context. Silakan refresh atau login ulang.
+          </div>
+        )}
+
+        {!isCompanyLoading && !companyId && !companyError && (
+          <div className="m-6 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+            Company context belum tersedia. Hubungi admin workspace Anda.
           </div>
         )}
 

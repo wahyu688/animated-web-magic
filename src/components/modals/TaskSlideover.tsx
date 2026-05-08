@@ -18,7 +18,27 @@ interface Activity {
   date: string;
 }
 
-export default function TaskSlideover({ open, onClose, task }: { open: boolean, onClose: () => void, task: any }) {
+interface KanbanTask {
+  id: string;
+  company_id?: string;
+  title: string;
+  tag: string;
+  tag_color?: string;
+  tagColor?: string;
+  description?: string | null;
+  subtasks?: Subtask[];
+  activities?: Activity[];
+}
+
+interface TaskSlideoverProps {
+  open: boolean;
+  onClose: () => void;
+  task: KanbanTask | null;
+  onTaskUpdated?: () => Promise<void>;
+  companyId?: string | null;
+}
+
+export default function TaskSlideover({ open, onClose, task, onTaskUpdated, companyId }: TaskSlideoverProps) {
   // State untuk form
   const [description, setDescription] = useState("");
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
@@ -45,21 +65,35 @@ export default function TaskSlideover({ open, onClose, task }: { open: boolean, 
   // Fungsi simpan ke Supabase
   const handleSaveToDB = async (updatedDesc: string, updatedSubtasks: Subtask[], updatedActivities: Activity[]) => {
     if (!task) return;
+    if (!companyId) {
+      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+      return;
+    }
+
     setIsSaving(true);
 
-    const { error } = await supabase
-      .from('kanban_tasks')
-      .update({
-        description: updatedDesc,
-        subtasks: updatedSubtasks,
-        activities: updatedActivities
-      })
-      .eq('id', task.id);
+    try {
+      const query = supabase
+        .from('kanban_tasks')
+        .update({
+          description: updatedDesc,
+          subtasks: updatedSubtasks,
+          activities: updatedActivities
+        })
+        .eq('company_id', companyId)
+        .eq('id', task.id);
 
-    if (error) {
+      const { error } = await query;
+
+      if (error) throw error;
+
+      await onTaskUpdated?.();
+    } catch (err) {
+      console.error("Update Kanban Task Error:", err);
       toast({ title: "Error", description: "Gagal menyimpan perubahan.", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
     }
-    setIsSaving(false);
   };
 
   // --- HANDLERS ---
@@ -110,7 +144,8 @@ export default function TaskSlideover({ open, onClose, task }: { open: boolean, 
       target: task.title,
       type: "mention",
       iconName: "MessageSquare",
-      iconBg: "bg-info/10 text-info"
+      iconBg: "bg-info/10 text-info",
+      companyId
     });
   };
 

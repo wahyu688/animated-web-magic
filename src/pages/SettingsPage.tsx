@@ -4,6 +4,7 @@ import { User, Lock, Bell, CreditCard, Puzzle, Camera, Shield, Smartphone, Key, 
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 import { logActivity } from "../lib/activityLogger";
+import type { Session } from "@supabase/supabase-js";
 
 const tabs = [
   { icon: User, label: "General" },
@@ -33,7 +34,7 @@ function SettingsFooter({ onSave, isLoading }: { onSave: () => void, isLoading?:
 }
 
 /* ── General Tab (TERSAMBUNG SUPABASE) ── */
-function GeneralTab({ session }: { session: any }) {
+function GeneralTab({ session }: { session: Session | null }) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -238,7 +239,7 @@ function SecurityTab() {
 }
 
 /* ── Notifications Tab (TERSAMBUNG SUPABASE) ── */
-function NotificationsTab({ session }: { session: any }) {
+function NotificationsTab({ session }: { session: Session | null }) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [prefs, setPrefs] = useState({
@@ -364,12 +365,24 @@ function IntegrationsTab() {
 /* ── MAIN SETTINGS PAGE ── */
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("General");
-  const [session, setSession] = useState<any>(null);
+  const [session, setSession] = useState<Session | null>(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
+    let isMounted = true;
+
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) console.error("Settings session fetch error:", error);
+      if (isMounted) setSession(session);
     });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (isMounted) setSession(session);
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const tabContent: Record<string, React.ReactNode> = {

@@ -1,10 +1,20 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Save, Loader2, Calculator, Receipt, TrendingUp, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
+import { useCompany } from "@/hooks/use-company";
 
 const ALL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+interface ChartDatum {
+  id: string;
+  company_id?: string;
+  month: string;
+  current_val: number;
+  previous_val: number;
+  sort_order: number;
+}
 
 export default function FinancialPage() {
   const { toast } = useToast();
@@ -13,8 +23,9 @@ export default function FinancialPage() {
 
   // Data ID & Company ID untuk keperluan Insert/Update
   const [kpiId, setKpiId] = useState("");
-  const [companyId, setCompanyId] = useState("");
-  const [chartData, setChartData] = useState<any[]>([]);
+  const [chartData, setChartData] = useState<ChartDatum[]>([]);
+  const isMountedRef = useRef(false);
+  const { companyId, isCompanyLoading, companyError } = useCompany();
 
   // State Form Input Mentah (Raw Data)
   const [formData, setFormData] = useState({
@@ -26,38 +37,64 @@ export default function FinancialPage() {
     avgSessionMinutes: ""
   });
 
+  const fetchFinanceData = useCallback(async (showLoading = false) => {
+    if (!companyId) return;
+
+    try {
+      if (showLoading) setIsLoading(true);
+
+      // Ambil data KPI dan Grafik
+      const [kpiRes, chartRes] = await Promise.all([
+        supabase.from('dashboard_kpis').select('id').eq('company_id', companyId).limit(1).maybeSingle(),
+        supabase.from('chart_data').select('*').eq('company_id', companyId).order('sort_order', { ascending: true })
+      ]);
+
+      const firstError = kpiRes.error || chartRes.error;
+      if (firstError) throw firstError;
+      if (!isMountedRef.current) return;
+
+      setKpiId(kpiRes.data?.id ?? "");
+      setChartData(chartRes.data ?? []);
+    } catch (error) {
+      console.error("Gagal memuat data:", error);
+      toast({ title: "Fetch Error", description: "Failed to load financial data.", variant: "destructive" });
+    } finally {
+      if (isMountedRef.current) setIsLoading(false);
+    }
+  }, [companyId, toast]);
+
   // 1. Ambil Data Awal & ID Perusahaan
   useEffect(() => {
-    const fetchFinanceData = async () => {
-      setIsLoading(true);
-      try {
-        // Ambil ID Perusahaan user yang sedang login
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session) {
-          const { data: profile } = await supabase.from('user_profiles').select('company_id').eq('id', session.user.id).maybeSingle();
-          if (profile) setCompanyId(profile.company_id);
+    isMountedRef.current = true;
+    if (!companyId) return;
+    fetchFinanceData(true);
+
+    const channel = supabase.channel('financial-metrics-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dashboard_kpis', filter: `company_id=eq.${companyId}` }, () => fetchFinanceData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chart_data', filter: `company_id=eq.${companyId}` }, () => fetchFinanceData())
+      .subscribe((status, error) => {
+        console.info("[financial realtime] status:", status, error ?? "");
+        if (status === 'SUBSCRIBED') fetchFinanceData();
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.warn("[financial realtime] disconnected; save fallback remains active.", { status, error });
         }
+      });
 
-        // Ambil data KPI dan Grafik
-        const [kpiRes, chartRes] = await Promise.all([
-          supabase.from('dashboard_kpis').select('id').limit(1).maybeSingle(),
-          supabase.from('chart_data').select('*').order('sort_order', { ascending: true })
-        ]);
-
-        if (kpiRes.data) setKpiId(kpiRes.data.id);
-        if (chartRes.data) setChartData(chartRes.data);
-      } catch (error) {
-        console.error("Gagal memuat data:", error);
-      } finally {
-        setIsLoading(false);
-      }
+    return () => {
+      isMountedRef.current = false;
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
     };
-    fetchFinanceData();
-  }, []);
+  }, [companyId, fetchFinanceData]);
 
   // 2. Fungsi Otomatisasi Perhitungan & Simpan => include dengan insert dan update
   const handleProcessAndSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!companyId) {
+      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+      return;
+    }
+
     setIsProcessing(true);
 
     try {
@@ -94,10 +131,12 @@ export default function FinancialPage() {
       // --- SIMPAN KPI ---
       if (kpiId) {
         // Jika sudah ada, Update
-        await supabase.from('dashboard_kpis').update(kpiPayload).eq('id', kpiId);
+        const { error } = await supabase.from('dashboard_kpis').update(kpiPayload).eq('company_id', companyId).eq('id', kpiId);
+        if (error) throw error;
       } else {
         // Jika akun baru kosong, Insert
         const kpiRes = await supabase.from('dashboard_kpis').insert({ company_id: companyId, ...kpiPayload }).select().single();
+        if (kpiRes.error) throw kpiRes.error;
         if (kpiRes.data) setKpiId(kpiRes.data.id);
       }
 
@@ -105,7 +144,8 @@ export default function FinancialPage() {
       const existingMonth = chartData.find(c => c.month === formData.month);
       if (existingMonth) {
         // Jika bulan ini sudah ada datanya, Update
-        await supabase.from('chart_data').update({ current_val: rev, previous_val: target }).eq('id', existingMonth.id);
+        const { error } = await supabase.from('chart_data').update({ current_val: rev, previous_val: target }).eq('company_id', companyId).eq('id', existingMonth.id);
+        if (error) throw error;
           
         const updatedChart = chartData.map(c => c.id === existingMonth.id ? { ...c, current_val: rev, previous_val: target } : c);
         setChartData(updatedChart);
@@ -120,6 +160,7 @@ export default function FinancialPage() {
           sort_order: sortOrder
         }).select().single();
 
+        if (chartRes.error) throw chartRes.error;
         if (chartRes.data) {
           const newChartData = [...chartData, chartRes.data].sort((a, b) => a.sort_order - b.sort_order);
           setChartData(newChartData);
@@ -133,17 +174,32 @@ export default function FinancialPage() {
         title: "Report Processed", 
         description: `Financial data for ${formData.month} successfully saved!`,
       });
+      await fetchFinanceData();
 
     } catch (error) {
+      console.error("Financial save error:", error);
       toast({ title: "Error", description: "Failed to process data.", variant: "destructive" });
+      await fetchFinanceData();
+    } finally {
+      setIsProcessing(false);
     }
-    setIsProcessing(false);
   };
 
-  if (isLoading) return <div className="flex h-full items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  if (isCompanyLoading || (Boolean(companyId) && isLoading)) return <div className="flex h-full items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   return (
     <div className="p-6 lg:p-10 space-y-8 max-w-6xl mx-auto">
+      {companyError && (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Gagal memuat company context. Silakan refresh atau login ulang.
+        </div>
+      )}
+
+      {!companyId && !companyError && (
+        <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+          Company context belum tersedia. Hubungi admin workspace Anda.
+        </div>
+      )}
       <div>
         <h1 className="text-3xl font-bold text-foreground tracking-tight">Financial Input</h1>
         <p className="text-muted-foreground mt-1">Enter your raw monthly operational data. The system will auto-calculate KPIs.</p>

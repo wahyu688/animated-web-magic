@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence, Variants } from "framer-motion";
 import { TrendingUp, TrendingDown, Users, DollarSign, Clock, BarChart3, ArrowUpRight, Minus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { useCompany } from "@/hooks/use-company";
 
 const cardVariants = {
   hidden: { opacity: 0, y: 20 },
@@ -18,13 +19,44 @@ const cardVariants = {
   })
 } as Variants;
 
+interface ChartDatum {
+  id: string;
+  month: string;
+  current_val: number;
+  previous_val: number;
+  sort_order?: number;
+}
+
+interface ChartPoint {
+  cx: number;
+  cy: number;
+  val: number;
+  label: string;
+}
+
+interface TopPage {
+  id: string;
+  name: string;
+  views: number;
+  unique_views: number;
+  bounce: string;
+  trend: string;
+}
+
+interface TrafficSource {
+  id: string;
+  name: string;
+  pct: number;
+  color: string;
+}
+
 // --- FUNGSI MATEMATIKA BEZIER CURVE ---
-const generateSmoothPath = (data: any[], key: string, width: number, height: number, maxVal: number) => {
+const generateSmoothPath = (data: ChartDatum[], key: "current_val" | "previous_val", width: number, height: number, maxVal: number) => {
   if (!data || data.length === 0) return { path: "", points: [] };
   
   const xStep = width / (data.length - 1 || 1);
   let path = "";
-  let points: any[] = [];
+  const points: ChartPoint[] = [];
 
   data.forEach((d, i) => {
     const x = i * xStep;
@@ -58,13 +90,16 @@ export default function DashboardPage() {
     session: "0", session_change: "0%", session_trend: "stable",
     churn: "0%", churn_change: "0%", churn_trend: "stable" 
   });
-  const [topPages, setTopPages] = useState<any[]>([]);
-  const [trafficSources, setTrafficSources] = useState<any[]>([]);
-  const [chartRawData, setChartRawData] = useState<any[]>([]);
+  const [topPages, setTopPages] = useState<TopPage[]>([]);
+  const [trafficSources, setTrafficSources] = useState<TrafficSource[]>([]);
+  const [chartRawData, setChartRawData] = useState<ChartDatum[]>([]);
   const [isLoadingDB, setIsLoadingDB] = useState(true);
+  const isMountedRef = useRef(false);
+  const fetchRequestIdRef = useRef(0);
 
   const { toast } = useToast();
   const navigate = useNavigate();
+  const { companyId, isCompanyLoading, companyError } = useCompany();
 
   // 1. Cek User Session
   useEffect(() => {
@@ -76,62 +111,75 @@ export default function DashboardPage() {
     checkUser();
   }, [navigate]);
 
+  const fetchDashboardInfo = useCallback(async (showLoading = false) => {
+    if (!companyId) return;
+    const requestId = ++fetchRequestIdRef.current;
+
+    try {
+      if (showLoading) setIsLoadingDB(true);
+      const [pagesRes, trafficRes, kpiRes, chartRes] = await Promise.all([
+        supabase.from('top_pages').select('*').eq('company_id', companyId).order('views', { ascending: false }),
+        supabase.from('traffic_sources').select('*').eq('company_id', companyId).order('pct', { ascending: false }),
+        supabase.from('dashboard_kpis').select('*').eq('company_id', companyId).limit(1).maybeSingle(),
+        supabase.from('chart_data').select('*').eq('company_id', companyId).order('sort_order', { ascending: true })
+      ]);
+
+      const firstError = pagesRes.error || trafficRes.error || kpiRes.error || chartRes.error;
+      if (firstError) throw firstError;
+      if (!isMountedRef.current || requestId !== fetchRequestIdRef.current) return;
+
+      setTopPages(pagesRes.data ?? []);
+      setTrafficSources(trafficRes.data ?? []);
+      if (kpiRes.data) {
+        setKpiData({
+          revenue: kpiRes.data.total_revenue || "$0", 
+          revenue_change: kpiRes.data.revenue_change || "0%", 
+          revenue_trend: kpiRes.data.revenue_trend || "stable",
+          users: kpiRes.data.active_users || "0", 
+          users_change: kpiRes.data.users_change || "0%", 
+          users_trend: kpiRes.data.users_trend || "stable",
+          session: kpiRes.data.avg_session || "0", 
+          session_change: kpiRes.data.session_change || "0%", 
+          session_trend: kpiRes.data.session_trend || "stable",
+          churn: kpiRes.data.churn_rate || "0%", 
+          churn_change: kpiRes.data.churn_change || "0%", 
+          churn_trend: kpiRes.data.churn_trend || "stable"
+        });
+      }
+      setChartRawData(chartRes.data ?? []);
+    } catch (error) {
+      console.error("Gagal menarik data:", error);
+      toast({ title: "Fetch Error", description: "Gagal memuat data dashboard.", variant: "destructive" });
+    } finally {
+      if (isMountedRef.current && requestId === fetchRequestIdRef.current) setIsLoadingDB(false);
+    }
+  }, [companyId, toast]);
+
   // 2. Fetch Data & Real-Time Listener
   useEffect(() => {
-    if (!userEmail) return;
+    if (!userEmail || !companyId) return;
+    isMountedRef.current = true;
+    fetchDashboardInfo(true);
 
-    const fetchDashboardInfo = async () => {
-      try {
-        const [pagesRes, trafficRes, kpiRes, chartRes] = await Promise.all([
-          supabase.from('top_pages').select('*').order('views', { ascending: false }),
-          supabase.from('traffic_sources').select('*').order('pct', { ascending: false }),
-          supabase.from('dashboard_kpis').select('*').limit(1).maybeSingle(),
-          supabase.from('chart_data').select('*').order('sort_order', { ascending: true })
-        ]);
-
-        if (pagesRes.data) setTopPages(pagesRes.data);
-        if (trafficRes.data) setTrafficSources(trafficRes.data);
-        if (kpiRes.data) {
-          setKpiData({
-            revenue: kpiRes.data.total_revenue || "$0", 
-            revenue_change: kpiRes.data.revenue_change || "0%", 
-            revenue_trend: kpiRes.data.revenue_trend || "stable",
-            
-            users: kpiRes.data.active_users || "0", 
-            users_change: kpiRes.data.users_change || "0%", 
-            users_trend: kpiRes.data.users_trend || "stable",
-            
-            session: kpiRes.data.avg_session || "0", 
-            session_change: kpiRes.data.session_change || "0%", 
-            session_trend: kpiRes.data.session_trend || "stable",
-            
-            churn: kpiRes.data.churn_rate || "0%", 
-            churn_change: kpiRes.data.churn_change || "0%", 
-            churn_trend: kpiRes.data.churn_trend || "stable"
-          });
+    const channel = supabase.channel('dashboard-metrics-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'traffic_sources', filter: `company_id=eq.${companyId}` }, () => fetchDashboardInfo())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'top_pages', filter: `company_id=eq.${companyId}` }, () => fetchDashboardInfo())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'dashboard_kpis', filter: `company_id=eq.${companyId}` }, () => fetchDashboardInfo())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chart_data', filter: `company_id=eq.${companyId}` }, () => fetchDashboardInfo())
+      .subscribe((status, error) => {
+        console.info("[dashboard realtime] status:", status, error ?? "");
+        if (status === 'SUBSCRIBED') fetchDashboardInfo();
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.warn("[dashboard realtime] disconnected; fetch fallback remains active.", { status, error });
         }
-        if (chartRes.data) setChartRawData(chartRes.data);
-
-      } catch (error) {
-        console.error("Gagal menarik data:", error);
-      } finally {
-        setIsLoadingDB(false);
-      }
-    };
-
-    fetchDashboardInfo();
-
-    const channel = supabase.channel('dashboard-live-updates')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'traffic_sources' }, fetchDashboardInfo)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'top_pages' }, fetchDashboardInfo)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'dashboard_kpis' }, fetchDashboardInfo)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chart_data' }, fetchDashboardInfo)
-      .subscribe();
+      });
 
     return () => {
+      isMountedRef.current = false;
+      channel.unsubscribe();
       supabase.removeChannel(channel);
     };
-  }, [userEmail]);
+  }, [companyId, userEmail, fetchDashboardInfo]);
 
   // --- MENGHITUNG KORDINAT SVG ---
   const maxChartValue = Math.max(
@@ -153,10 +201,21 @@ export default function DashboardPage() {
     { label: "Churn Rate", value: kpiData.churn, change: kpiData.churn_change, trend: kpiData.churn_trend, icon: BarChart3, color: "text-muted-foreground" },
   ];
 
-  if (!userEmail) return null;
+  if (!userEmail || isCompanyLoading) return null;
 
   return (
     <div className="p-6 lg:p-10 space-y-8">
+      {companyError && (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Gagal memuat company context. Silakan refresh atau login ulang.
+        </div>
+      )}
+
+      {!companyId && !companyError && (
+        <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+          Company context belum tersedia. Hubungi admin workspace Anda.
+        </div>
+      )}
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

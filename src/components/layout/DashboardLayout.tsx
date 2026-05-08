@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../../lib/supabase";
@@ -6,6 +6,7 @@ import {
   BarChart3, Calendar, ChevronLeft, Home, Kanban,
   Bell, Search, Settings, Users, Zap, CreditCard, Activity, Menu, BookOpen, DollarSign
 } from "lucide-react";
+import { useCompany } from "@/hooks/use-company";
 
 const navItems = [
   { icon: Home, label: "Dashboard", path: "/dashboard" },
@@ -30,14 +31,19 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   // --- STATE PROFIL & NOTIFIKASI ---
   const [profile, setProfile] = useState({ firstName: "Loading...", lastName: "", email: "..." });
   const [unreadCount, setUnreadCount] = useState(0);
+  const isMountedRef = useRef(false);
+  const { companyId } = useCompany();
 
   // --- EFFECT UNTUK PROFIL ---
   useEffect(() => {
+    isMountedRef.current = true;
     const fetchProfile = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
+      const { data: { user }, error } = await supabase.auth.getUser();
+      if (error) console.error("Profile auth fetch error:", error);
+      if (user && isMountedRef.current) {
         // Ambil data dari tabel user_profiles
-        const { data } = await supabase.from('user_profiles').select('first_name, last_name').eq('id', user.id).single();
+        const { data, error: profileError } = await supabase.from('user_profiles').select('first_name, last_name').eq('id', user.id).single();
+        if (profileError) console.error("Profile fetch error:", profileError);
         
         setProfile({
           firstName: data?.first_name || user.user_metadata?.first_name || "User",
@@ -47,33 +53,58 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       }
     };
     fetchProfile();
+
+    return () => {
+      isMountedRef.current = false;
+    };
   }, []);
 
   // --- EFFECT UNTUK REAL-TIME NOTIFIKASI ---
-  useEffect(() => {
-    const fetchUnreadCount = async () => {
-      const { count, error } = await supabase
-        .from('notifications')
-        .select('*', { count: 'exact', head: true })
-        .eq('unread', true);
-      
-      if (!error && count !== null) {
-        setUnreadCount(count);
-      }
-    };
+  const fetchUnreadCount = useCallback(async () => {
+    if (!companyId) {
+      setUnreadCount(0);
+      return;
+    }
 
+    const { count, error } = await supabase
+      .from('notifications')
+      .select('*', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .eq('unread', true);
+    
+    if (error) {
+      console.error("Unread notification count error:", error);
+      return;
+    }
+
+    if (isMountedRef.current && count !== null) {
+      setUnreadCount(count);
+    }
+  }, [companyId]);
+
+  useEffect(() => {
+    isMountedRef.current = true;
+    if (!companyId) return;
     fetchUnreadCount();
 
-    const channel = supabase.channel('navbar-bell-room')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, () => {
+    const channel = supabase.channel('navbar-notifications-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `company_id=eq.${companyId}` }, () => {
         fetchUnreadCount(); 
       })
-      .subscribe();
+      .subscribe((status, error) => {
+        console.info("[navbar realtime] status:", status, error ?? "");
+        if (status === 'SUBSCRIBED') fetchUnreadCount();
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.warn("[navbar realtime] disconnected; unread count will refresh on reconnect/page activity.", { status, error });
+        }
+      });
 
     return () => {
+      isMountedRef.current = false;
+      channel.unsubscribe();
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [companyId, fetchUnreadCount]);
 
   // Membuat inisial nama (Misal: "Wahyu Saputra" jadi "WS")
   const getInitials = () => {

@@ -102,8 +102,9 @@ export default function LoginPage() {
            setIsSuccess(true);
         }
       }
-    } catch (error: any) {
-      showAlert('error', error.message || "Authentication failed.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Authentication failed.";
+      showAlert('error', message);
     } finally {
       setIsLoading(false);
     }

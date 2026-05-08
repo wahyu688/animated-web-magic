@@ -1,9 +1,10 @@
-import { useState, useMemo, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronLeft, ChevronRight, Plus, Clock, X, Calendar as CalendarIcon, AlignLeft, Trash2, Loader2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { logActivity } from "../lib/activityLogger";
+import { useCompany } from "@/hooks/use-company";
 
 // --- TYPES ---
 interface CalendarEvent {
@@ -14,6 +15,17 @@ interface CalendarEvent {
   color: string;
   description?: string;
   dateStr: string;
+}
+
+interface CalendarEventRow {
+  id: string;
+  company_id?: string;
+  title: string;
+  time: string;
+  duration: number;
+  color: string;
+  description?: string;
+  date_str: string;
 }
 
 // --- CALENDAR UTILS ---
@@ -63,6 +75,7 @@ const hours = Array.from({ length: 10 }, (_, i) => `${String(i + 8).padStart(2, 
 
 export default function CalendarPage() {
   const { toast } = useToast();
+  const { companyId, isCompanyLoading, companyError } = useCompany();
   
   // STATE DINAMIS BERBASIS HARI INI
   const [selectedDateStr, setSelectedDateStr] = useState<string>(getLocalTodayStr());
@@ -71,6 +84,8 @@ export default function CalendarPage() {
   // --- DATABASE STATES ---
   const [allEvents, setAllEvents] = useState<CalendarEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const isMountedRef = useRef(false);
+  const fetchRequestIdRef = useRef(0);
   
   // --- MODAL STATES ---
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
@@ -84,44 +99,64 @@ export default function CalendarPage() {
   const [newEventDuration, setNewEventDuration] = useState(1);
   const [newEventColor, setNewEventColor] = useState("bg-primary");
 
+  const formatEvent = (d: CalendarEventRow): CalendarEvent => ({
+    id: d.id,
+    title: d.title,
+    time: d.time,
+    duration: d.duration,
+    color: d.color,
+    description: d.description,
+    dateStr: d.date_str
+  });
+
+  const fetchEvents = useCallback(async (showLoading = false) => {
+    if (!companyId) return;
+    const requestId = ++fetchRequestIdRef.current;
+
+    try {
+      if (showLoading) setIsLoading(true);
+      const { data, error } = await supabase
+        .from('calendar_events')
+        .select('*')
+        .eq('company_id', companyId)
+        .order('date_str', { ascending: true })
+        .order('time', { ascending: true });
+      if (error) throw error;
+      if (!isMountedRef.current || requestId !== fetchRequestIdRef.current) return;
+      setAllEvents((data ?? []).map(formatEvent));
+    } catch (error) {
+      console.error("Gagal menarik jadwal:", error);
+      toast({ title: "Fetch Error", description: "Gagal memuat jadwal kalender.", variant: "destructive" });
+    } finally {
+      if (isMountedRef.current && requestId === fetchRequestIdRef.current) setIsLoading(false);
+    }
+  }, [companyId, toast]);
+
   // --- FETCH & REAL-TIME SUPABASE ---
   useEffect(() => {
-    const fetchEvents = async () => {
-      setIsLoading(true);
-      const { data, error } = await supabase.from('calendar_events').select('*');
-      
-      if (error) {
-        console.error("Gagal menarik jadwal:", error);
-      } else if (data) {
-        const formatted = data.map((d: any) => ({
-          id: d.id,
-          title: d.title,
-          time: d.time,
-          duration: d.duration,
-          color: d.color,
-          description: d.description,
-          dateStr: d.date_str
-        }));
-        setAllEvents(formatted);
-      }
-      setIsLoading(false);
-    };
+    isMountedRef.current = true;
+    if (!companyId) return;
+    fetchEvents(true);
 
-    fetchEvents();
-
-    const channel = supabase.channel('calendar-room')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events' }, (payload) => {
-        setAllEvents((current) => {
-          if (payload.eventType === 'INSERT') return [...current, { ...payload.new, dateStr: payload.new.date_str } as CalendarEvent];
-          if (payload.eventType === 'DELETE') return current.filter(e => e.id !== payload.old.id);
-          if (payload.eventType === 'UPDATE') return current.map(e => e.id === payload.new.id ? { ...payload.new, dateStr: payload.new.date_str } as CalendarEvent : e);
-          return current;
-        });
+    const channel = supabase.channel('calendar-events-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events', filter: `company_id=eq.${companyId}` }, (payload) => {
+        console.info("[calendar realtime] change received:", payload.eventType, payload);
+        fetchEvents();
       })
-      .subscribe();
+      .subscribe((status, error) => {
+        console.info("[calendar realtime] status:", status, error ?? "");
+        if (status === 'SUBSCRIBED') fetchEvents();
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.warn("[calendar realtime] disconnected; mutation fetch fallback remains active.", { status, error });
+        }
+      });
 
-    return () => { supabase.removeChannel(channel); };
-  }, []);
+    return () => {
+      isMountedRef.current = false;
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+    };
+  }, [companyId, fetchEvents]);
 
   // --- DERIVED DATA & DINAMIS ---
   const calendarDays = useMemo(() => generateCalendarDays(selectedDateStr), [selectedDateStr]);
@@ -196,8 +231,13 @@ export default function CalendarPage() {
 
   const handleSaveEvent = async () => {
     if (!newEventTitle.trim()) return;
+    if (!companyId) {
+      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+      return;
+    }
 
     const eventPayload = {
+      company_id: companyId,
       title: newEventTitle,
       date_str: newEventDateStr,
       time: newEventTime,
@@ -207,39 +247,59 @@ export default function CalendarPage() {
     };
 
     if (editingEventId) {
-      const { error } = await supabase.from('calendar_events').update(eventPayload).eq('id', editingEventId);
+      const { error } = await supabase.from('calendar_events').update(eventPayload).eq('company_id', companyId).eq('id', editingEventId);
       if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
       else {
+        await fetchEvents();
         toast({ title: "Success", description: "Jadwal berhasil diperbarui." });
-        await logActivity({ user: "You", action: "updated the schedule for", target: newEventTitle, type: "success", iconName: "CheckCircle", iconBg: "bg-info/10 text-info" });
+        await logActivity({ user: "You", action: "updated the schedule for", target: newEventTitle, type: "success", iconName: "CheckCircle", iconBg: "bg-info/10 text-info", companyId });
       }
     } else {
       const { error } = await supabase.from('calendar_events').insert([eventPayload]);
       if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
       else {
+        await fetchEvents();
         toast({ title: "Success", description: "Jadwal baru ditambahkan." });
-        await logActivity({ user: "You", action: "scheduled a new event:", target: newEventTitle, message: `Set for ${newEventDateStr} at ${newEventTime}`, type: "invite", iconName: "AtSign", iconBg: "bg-primary/10 text-primary", hasAction: true });
+        await logActivity({ user: "You", action: "scheduled a new event:", target: newEventTitle, message: `Set for ${newEventDateStr} at ${newEventTime}`, type: "invite", iconName: "AtSign", iconBg: "bg-primary/10 text-primary", hasAction: true, companyId });
       }
     }
     setIsFormModalOpen(false);
   };
 
   const handleDeleteEvent = async (id: string) => {
+    if (!companyId) {
+      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+      return;
+    }
+
     const eventTitle = selectedEvent?.title || "an event"; 
-    const { error } = await supabase.from('calendar_events').delete().eq('id', id);
+    const { error } = await supabase.from('calendar_events').delete().eq('company_id', companyId).eq('id', id);
     if (error) toast({ title: "Error", description: "Gagal menghapus jadwal.", variant: "destructive" });
     else {
+      await fetchEvents();
       toast({ title: "Terhapus", description: "Jadwal berhasil dihapus dari sistem." });
-      await logActivity({ user: "You", action: "canceled the event", target: eventTitle, type: "warning", iconName: "AlertTriangle", iconBg: "bg-destructive/10 text-destructive" });
+      await logActivity({ user: "You", action: "canceled the event", target: eventTitle, type: "warning", iconName: "AlertTriangle", iconBg: "bg-destructive/10 text-destructive", companyId });
       setSelectedEvent(null);
     }
   };
 
   return (
     <div className="flex flex-col lg:flex-row h-full overflow-hidden relative">
-      {isLoading && (
+      {(isCompanyLoading || (Boolean(companyId) && isLoading)) && (
         <div className="absolute inset-0 z-50 bg-background/50 backdrop-blur-sm flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
+        </div>
+      )}
+
+      {companyError && (
+        <div className="m-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Gagal memuat company context. Silakan refresh atau login ulang.
+        </div>
+      )}
+
+      {!isCompanyLoading && !companyId && !companyError && (
+        <div className="m-4 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+          Company context belum tersedia. Hubungi admin workspace Anda.
         </div>
       )}
 

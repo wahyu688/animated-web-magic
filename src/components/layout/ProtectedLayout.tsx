@@ -9,9 +9,13 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
+    let isMounted = true;
+
     // 1. Cek sesi saat komponen pertama kali dimuat
     const checkAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error) console.error("Auth session check error:", error);
+      if (!isMounted) return;
       setIsAuthenticated(!!session);
       setIsLoading(false); // Selesai loading
     };
@@ -19,11 +23,13 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
     checkAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!isMounted) return;
       setIsAuthenticated(!!session);
       setIsLoading(false);
     });
 
     return () => {
+      isMounted = false;
       subscription.unsubscribe();
     };
   }, []);

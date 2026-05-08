@@ -1,17 +1,39 @@
-import { useState, useMemo, useEffect } from "react";
+import { useCallback, useMemo, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { AtSign, AlertTriangle, Upload, CheckCircle, GitBranch, ArrowDown, Check, Send, X, Calendar, Users, Tag, Loader2 } from "lucide-react";
+import { AtSign, AlertTriangle, Upload, CheckCircle, GitBranch, ArrowDown, Check, Send, X, Calendar, Users, Tag, Loader2, type LucideIcon } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
-import { logActivity } from "../lib/activityLogger";
+import { useCompany } from "@/hooks/use-company";
 
 // --- PETA IKON ---
-const IconMap: Record<string, any> = {
+const IconMap: Record<string, LucideIcon> = {
   AtSign, AlertTriangle, Upload, CheckCircle, GitBranch
 };
 
+interface NotificationReply {
+  text: string;
+  time: string;
+}
+
+interface NotificationItem {
+  id: string;
+  type: string;
+  user?: string;
+  action: string;
+  target?: string;
+  message?: string;
+  time: string;
+  unread: boolean;
+  icon: LucideIcon;
+  iconBg: string;
+  initials?: string;
+  hasAction?: boolean;
+  files: unknown[];
+  replies: NotificationReply[];
+}
+
 // --- KOMPONEN MODAL TICKET ---
-function TicketSlideover({ open, onClose, ticketData }: { open: boolean, onClose: () => void, ticketData: any }) {
+function TicketSlideover({ open, onClose, ticketData }: { open: boolean, onClose: () => void, ticketData: NotificationItem | null }) {
   if (!ticketData) return null;
   return (
     <AnimatePresence>
@@ -49,8 +71,11 @@ export default function ActivityPage() {
   const { toast } = useToast();
   
   // --- DATABASE STATES ---
-  const [notifications, setNotifications] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const isMountedRef = useRef(false);
+  const fetchRequestIdRef = useRef(0);
+  const { companyId, isCompanyLoading, companyError } = useCompany();
 
   // --- UI STATES ---
   const [activeTab, setActiveTab] = useState<"All Activity" | "Mentions" | "System">("All Activity");
@@ -58,61 +83,63 @@ export default function ActivityPage() {
   const [hasLoadedMore, setHasLoadedMore] = useState(false);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState("");
-  const [viewingTicket, setViewingTicket] = useState<any | null>(null);
+  const [viewingTicket, setViewingTicket] = useState<NotificationItem | null>(null);
+
+  const fetchNotifications = useCallback(async (showLoading = false) => {
+    if (!companyId) return;
+    const requestId = ++fetchRequestIdRef.current;
+
+    try {
+      if (showLoading) setIsLoading(true);
+
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('company_id', companyId)
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      if (!isMountedRef.current || requestId !== fetchRequestIdRef.current) return;
+
+      const formatted = (data ?? []).map(n => ({
+        id: n.id, type: n.type, user: n.user_name, action: n.action, target: n.target,
+        message: n.message, time: n.time, unread: n.unread, icon: IconMap[n.icon_name] || CheckCircle,
+        iconBg: n.icon_bg, initials: n.initials, hasAction: n.has_action,
+        files: n.files || [], replies: n.replies || []
+      }));
+      setNotifications(formatted);
+    } catch (error) {
+      console.error("Error fetching notifications:", error);
+      toast({ title: "Fetch Error", description: "Gagal memuat activity feed.", variant: "destructive" });
+    } finally {
+      if (isMountedRef.current && requestId === fetchRequestIdRef.current) setIsLoading(false);
+    }
+  }, [companyId, toast]);
 
   // --- FETCH & REAL-TIME SUPABASE ---
   useEffect(() => {
-    const fetchNotifications = async () => {
-      setIsLoading(true);
-      const { data, error } = await supabase.from('notifications').select('*').order('created_at', { ascending: false });
-      
-      if (error) console.error("Error fetching notifications:", error);
-      else if (data) {
-        // Map DB response to UI expected format
-        const formatted = data.map(n => ({
-          id: n.id, type: n.type, user: n.user_name, action: n.action, target: n.target,
-          message: n.message, time: n.time, unread: n.unread, icon: IconMap[n.icon_name] || CheckCircle,
-          iconBg: n.icon_bg, initials: n.initials, hasAction: n.has_action,
-          files: n.files || [], replies: n.replies || []
-        }));
-        setNotifications(formatted);
-      }
-      setIsLoading(false);
-    };
+    isMountedRef.current = true;
+    if (!companyId) return;
+    fetchNotifications(true);
 
-    fetchNotifications();
-
-    const channel = supabase.channel('activity-room')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications' }, (payload) => {
-        setNotifications((current) => {
-          if (payload.eventType === 'INSERT') {
-            const newN = payload.new;
-            const formatted = {
-              id: newN.id, type: newN.type, user: newN.user_name, action: newN.action, target: newN.target,
-              message: newN.message, time: newN.time, unread: newN.unread, icon: IconMap[newN.icon_name] || CheckCircle,
-              iconBg: newN.icon_bg, initials: newN.initials, hasAction: newN.has_action,
-              files: newN.files || [], replies: newN.replies || []
-            };
-            return [formatted, ...current];
-          }
-          if (payload.eventType === 'DELETE') return current.filter(n => n.id !== payload.old.id);
-          if (payload.eventType === 'UPDATE') {
-            const upN = payload.new;
-            const formatted = {
-              id: upN.id, type: upN.type, user: upN.user_name, action: upN.action, target: upN.target,
-              message: upN.message, time: upN.time, unread: upN.unread, icon: IconMap[upN.icon_name] || CheckCircle,
-              iconBg: upN.icon_bg, initials: upN.initials, hasAction: upN.has_action,
-              files: upN.files || [], replies: upN.replies || []
-            };
-            return current.map(n => n.id === upN.id ? formatted : n);
-          }
-          return current;
-        });
+    const channel = supabase.channel('activity-notifications-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `company_id=eq.${companyId}` }, (payload) => {
+        console.info("[activity realtime] change received:", payload.eventType, payload);
+        fetchNotifications();
       })
-      .subscribe();
+      .subscribe((status, error) => {
+        console.info("[activity realtime] status:", status, error ?? "");
+        if (status === 'SUBSCRIBED') fetchNotifications();
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          console.warn("[activity realtime] disconnected; mutation fetch fallback remains active.", { status, error });
+        }
+      });
 
-    return () => { supabase.removeChannel(channel); };
-  }, []);
+    return () => {
+      isMountedRef.current = false;
+      channel.unsubscribe();
+      supabase.removeChannel(channel);
+    };
+  }, [companyId, fetchNotifications]);
 
   // --- LOGIKA FILTERING ---
   const filteredNotifications = useMemo(() => {
@@ -127,19 +154,37 @@ export default function ActivityPage() {
 
   // --- HANDLERS (TERSAMBUNG KE DATABASE) ---
   const handleMarkAllRead = async () => {
+    if (!companyId) {
+      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+      return;
+    }
+
     // Optimistic UI
     setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
     toast({ title: "All marked as read", description: "Your activity feed is all caught up." });
     
     // Kirim ke server
-    await supabase.from('notifications').update({ unread: false }).eq('unread', true);
+    const { error } = await supabase.from('notifications').update({ unread: false }).eq('company_id', companyId).eq('unread', true);
+    if (error) {
+      toast({ title: "Sync Error", description: "Gagal menandai semua notifikasi.", variant: "destructive" });
+    }
+    await fetchNotifications();
   };
 
   const handleItemClick = async (id: string) => {
     const target = notifications.find(n => n.id === id);
     if (target && target.unread) {
+      if (!companyId) {
+        toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+        return;
+      }
+
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, unread: false } : n)));
-      await supabase.from('notifications').update({ unread: false }).eq('id', id);
+      const { error } = await supabase.from('notifications').update({ unread: false }).eq('company_id', companyId).eq('id', id);
+      if (error) {
+        toast({ title: "Sync Error", description: "Gagal memperbarui notifikasi.", variant: "destructive" });
+      }
+      await fetchNotifications();
     }
   };
 
@@ -160,12 +205,16 @@ export default function ActivityPage() {
     setReplyText("");
   };
 
-  const handleSendReply = async (e: React.MouseEvent, id: string) => {
+  const handleSendReply = async (e: React.MouseEvent | React.KeyboardEvent, id: string) => {
     e.stopPropagation();
     if (!replyText.trim()) return;
 
     const targetNotif = notifications.find(n => n.id === id);
     if (!targetNotif) return;
+    if (!companyId) {
+      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+      return;
+    }
 
     const newReply = { text: replyText, time: "Just now" };
     const updatedReplies = [...(targetNotif.replies || []), newReply];
@@ -176,16 +225,17 @@ export default function ActivityPage() {
     setReplyText("");
     
     // Simpan ke database
-    const { error } = await supabase.from('notifications').update({ replies: updatedReplies }).eq('id', id);
+    const { error } = await supabase.from('notifications').update({ replies: updatedReplies }).eq('company_id', companyId).eq('id', id);
     
     if (error) {
       toast({ title: "Error", description: "Gagal mengirim balasan.", variant: "destructive" });
     } else {
       toast({ title: "Reply sent", description: "Your comment has been posted successfully." });
     }
+    await fetchNotifications();
   };
 
-  const handleViewTicket = (e: React.MouseEvent, notification: any) => {
+  const handleViewTicket = (e: React.MouseEvent, notification: NotificationItem) => {
     e.stopPropagation();
     setViewingTicket(notification);
     handleItemClick(notification.id);
@@ -194,9 +244,21 @@ export default function ActivityPage() {
   return (
     <div className="p-6 lg:p-10 max-w-3xl mx-auto relative">
       
-      {isLoading && (
+      {(isCompanyLoading || (Boolean(companyId) && isLoading)) && (
         <div className="absolute top-10 right-10 z-10 flex items-center justify-center">
           <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        </div>
+      )}
+
+      {companyError && (
+        <div className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+          Gagal memuat company context. Silakan refresh atau login ulang.
+        </div>
+      )}
+
+      {!isCompanyLoading && !companyId && !companyError && (
+        <div className="mb-4 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+          Company context belum tersedia. Hubungi admin workspace Anda.
         </div>
       )}
 
@@ -280,7 +342,7 @@ export default function ActivityPage() {
                   {/* Tampilkan Balasan yang Sudah Dikirim */}
                   {n.replies && n.replies.length > 0 && (
                     <div className="mt-3 space-y-2 border-l-2 border-primary/20 pl-3 ml-1">
-                      {n.replies.map((reply: any, idx: number) => (
+                      {n.replies.map((reply, idx) => (
                         <div key={idx}>
                           <p className="text-xs font-semibold text-foreground">You <span className="font-normal text-muted-foreground ml-2">{reply.time}</span></p>
                           <p className="text-sm text-muted-foreground">{reply.text}</p>
@@ -295,7 +357,7 @@ export default function ActivityPage() {
                       <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-3 flex gap-2 items-center overflow-hidden">
                         <input
                           type="text" autoFocus value={replyText} onChange={(e) => setReplyText(e.target.value)} onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => { if (e.key === "Enter") handleSendReply(e as any, n.id); }}
+                          onKeyDown={(e) => { if (e.key === "Enter") handleSendReply(e, n.id); }}
                           placeholder="Type your reply..."
                           className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-sm outline-none focus:border-primary transition-colors text-foreground"
                         />
