@@ -266,20 +266,20 @@ export default function KanbanPage() {
       : 1000;
 
     const newTaskDB = {
-      company_id: companyId,
-      column_id: columnId,
-      title: "New Draft Task",
-      tag: "Draft",
-      tag_color: "bg-secondary text-secondary-foreground",
-      priority: null,
-      comments: 0,
-      attachments: 0,
-      due_date: null,
-      position: newPos,
-      description: null,
-      subtasks: [],
-      activities: []
-    };
+    company_id: companyId,
+    column_id: columnId,
+    title: "New Draft Task",
+    tag: "Draft",
+    tag_color: "bg-secondary text-secondary-foreground",
+    priority: null,
+    comments: 0,
+    attachments: 0,
+    due_date: null,
+    position: newPos,
+    description: "",
+    subtasks: [],
+    activities: []
+  };
 
     try {
       const { error } = await supabase
