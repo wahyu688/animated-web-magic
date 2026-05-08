@@ -38,7 +38,7 @@ export default function AboutPage() {
             <Link to="/" className="flex items-center gap-3">
 
               <img
-                src="/logo.png"
+                src="/nextflowIcon-Cd3kiR7z.ico"
                 alt="NexusFlow Logo"
                 className="w-11 h-11 object-contain"
               />
