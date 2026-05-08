@@ -120,39 +120,85 @@ export default function LoginPage() {
       {/* POP-UP MEMANGGIL KOMPONEN DI ATAS */}
       <FloatingAlert alert={alert} onClose={() => setAlert(null)} />
 
-      {/* --- BAGIAN KIRI: BRANDING --- */}
-      <div className="hidden lg:flex lg:w-1/2 bg-primary relative overflow-hidden flex-col justify-between p-12 text-white">
-        <div className="absolute top-0 left-0 w-full h-full overflow-hidden z-0">
-          <div className="absolute -top-[20%] -left-[10%] w-[70%] h-[70%] rounded-full bg-white/10 blur-3xl"></div>
-          <div className="absolute bottom-[10%] -right-[20%] w-[60%] h-[60%] rounded-full bg-blue-400/20 blur-3xl"></div>
-        </div>
+      {/* --- BAGIAN KIRI: VIDEO BRANDING --- */}
+      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden flex-col justify-between text-white">
 
-        <Link to="/" className="relative z-10 flex items-center gap-2 w-max cursor-pointer hover:opacity-90 transition-opacity">
-          <div className="bg-white p-1.5 rounded-lg">
-            <svg className="w-6 h-6 text-primary" fill="none" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-              <path d="M44 11.2727C44 14.0109 39.8386 16.3957 33.69 17.6364C39.8386 18.877 44 21.2618 44 24C44 26.7382 39.8386 29.123 33.69 30.3636C39.8386 31.6043 44 33.9891 44 36.7273C44 40.7439 35.0457 44 24 44C12.9543 44 4 40.7439 4 36.7273C4 33.9891 8.16144 31.6043 14.31 30.3636C8.16144 29.123 4 26.7382 4 24C4 21.2618 8.16144 18.877 14.31 17.6364C8.16144 16.3957 4 14.0109 4 11.2727C4 7.25611 12.9543 4 24 4C35.0457 4 44 7.25611 44 11.2727Z" fill="currentColor"></path>
-            </svg>
+        {/* VIDEO BACKGROUND */}
+        <video
+          autoPlay
+          muted
+          loop
+          playsInline
+          className="absolute inset-0 w-full h-full object-cover"
+        >
+          <source src="C:\Users\wulan\OneDrive\Documents\dokumen wahyu\Software Engineering\animated-web-magic\dist\assets\LoginPage.mp4" type="video/mp4" />
+        </video>
+
+        {/* DARK OVERLAY */}
+        <div className="absolute inset-0 bg-black/40 z-[1]" />
+
+        {/* GRADIENT OVERLAY */}
+        <div className="absolute inset-0 bg-gradient-to-br from-primary/70 via-primary/40 to-black/60 z-[2]" />
+
+        {/* CONTENT */}
+        <div className="relative z-10 flex flex-col justify-between h-full p-12">
+
+          {/* LOGO */}
+          <Link
+            to="/"
+            className="flex items-center gap-2 w-max cursor-pointer hover:opacity-90 transition-opacity"
+          >
+          <img
+            src="C:\Users\wulan\OneDrive\Documents\dokumen wahyu\Software Engineering\animated-web-magic\dist\assets\nextflowIcon-Cd3kiR7z.ico"
+            alt="NexusFlow Logo"
+            className="w-12 h-12 object-contain"
+          />
+
+            <span className="text-2xl font-bold tracking-tight">
+              NEXUSFLOW
+            </span>
+          </Link>
+
+          {/* HERO CONTENT */}
+          <div className="max-w-xl">
+
+            <motion.h2
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2 }}
+              className="text-5xl font-black leading-tight mb-6"
+            >
+              Scale your operations with intelligent precision.
+            </motion.h2>
+
+            <motion.p
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="text-white/80 text-lg leading-relaxed mb-8"
+            >
+              NexusFlow transforms how engineering and product teams collaborate with realtime analytics, intelligent workflows, and seamless productivity tools.
+            </motion.p>
+
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.4 }}
+              className="flex items-center gap-4"
+            >
+              <div className="flex -space-x-3">
+                <div className="w-10 h-10 rounded-full border-2 border-white/20 bg-blue-300"></div>
+                <div className="w-10 h-10 rounded-full border-2 border-white/20 bg-indigo-300"></div>
+                <div className="w-10 h-10 rounded-full border-2 border-white/20 bg-violet-300"></div>
+              </div>
+
+              <div className="text-sm font-medium text-white/80">
+                Joined by 10,000+ teams
+              </div>
+            </motion.div>
+
           </div>
-          <span className="text-2xl font-bold tracking-tight">NEXUSFLOW</span>
-        </Link>
 
-        <div className="relative z-10 max-w-lg">
-          <motion.h2 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="text-4xl font-black leading-tight mb-6">
-            Scale your operations with intelligent precision.
-          </motion.h2>
-          <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="text-blue-100 text-lg leading-relaxed mb-8">
-            "NexusFlow has completely transformed how our engineering and design teams collaborate. The real-time sync is pure magic."
-          </motion.p>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.4 }} className="flex items-center gap-4">
-            <div className="flex -space-x-3">
-              <div className="w-10 h-10 rounded-full border-2 border-primary bg-blue-300"></div>
-              <div className="w-10 h-10 rounded-full border-2 border-primary bg-indigo-300"></div>
-              <div className="w-10 h-10 rounded-full border-2 border-primary bg-violet-300"></div>
-            </div>
-            <div className="text-sm font-medium text-blue-100">
-              Joined by 10,000+ teams
-            </div>
-          </motion.div>
         </div>
       </div>
 
