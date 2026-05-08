@@ -87,7 +87,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     if (!companyId) return;
     fetchUnreadCount();
 
-    const channel = supabase.channel('navbar-notifications-realtime')
+    const channel = supabase
+      .channel('navbar-notifications-realtime')
       .on(
         'postgres_changes',
         {
@@ -96,7 +97,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           table: 'notifications',
           filter: `company_id=eq.${companyId}`
         },
-        () => {
+        (payload) => {
+          console.log("[navbar realtime] new notification:", payload);
+
           setUnreadCount((prev) => prev + 1);
 
           fetchUnreadCount();
