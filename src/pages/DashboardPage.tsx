@@ -353,7 +353,12 @@ export default function DashboardPage() {
                     <span className="text-foreground">{s.pct}%</span>
                   </div>
                   <div className="w-full bg-muted rounded-full h-2.5">
-                    <motion.div className={`${s.color} h-2.5 rounded-full`} initial={{ width: 0 }} animate={{ width: `${s.pct}%` }} transition={{ duration: 1 }} />
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Number(s.pct) || 0}%` }}
+                      transition={{ duration: 1, ease: "easeOut" }}
+                      className={`h-2.5 rounded-full ${s.color || "bg-primary"}`}
+                    />
                   </div>
                 </motion.div>
               ))}

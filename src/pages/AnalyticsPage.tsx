@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, Variants } from "framer-motion";
 import { TrendingUp, TrendingDown, Users, DollarSign, Clock, BarChart3, Download, Minus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useCompany } from "@/hooks/use-company";
+
 
 const cardVariants = {
 hidden: { opacity: 0, y: 20 },
@@ -158,10 +159,28 @@ export default function AnalyticsPage() {
   }, [companyId, userEmail, fetchAnalyticsData]);
 
   // --- MENGHITUNG KORDINAT SVG DINAMIS ---
-  // Cari nilai paling tinggi antara tahun ini dan tahun lalu agar grafiknya proporsional
+  const filteredChartData = useMemo(() => {
+    if (!chartRawData.length) return [];
+
+    switch (activeRange) {
+      case "7D":
+        return chartRawData.slice(-7);
+
+      case "30D":
+        return chartRawData.slice(-30);
+
+      case "3M":
+        return chartRawData.slice(-3);
+
+      case "1Y":
+      default:
+        return chartRawData;
+    }
+  }, [chartRawData, activeRange]);
+
   const maxChartValue = Math.max(
-    ...chartRawData.map(d => d.current_val), 
-    ...chartRawData.map(d => d.previous_val), 
+    ...filteredChartData.map(d => d.current_val), 
+    ...filteredChartData.map(d => d.previous_val), 
     1 
   );
 
@@ -169,8 +188,8 @@ export default function AnalyticsPage() {
   const height = 350;
 
   // Generate garis (path) dan titik (points) 
-  const currentYearGraph = generateSmoothPath(chartRawData, 'current_val', width, height, maxChartValue);
-  const previousYearGraph = generateSmoothPath(chartRawData, 'previous_val', width, height, maxChartValue);
+  const currentYearGraph = generateSmoothPath(filteredChartData, 'current_val', width, height, maxChartValue);
+  const previousYearGraph = generateSmoothPath(filteredChartData, 'previous_val', width, height, maxChartValue);
 
   const handleExport = () => toast({ title: "Exporting Report", description: "Your analytics report is being generated..." });
 
@@ -309,7 +328,7 @@ export default function AnalyticsPage() {
             
             {/* Label Bulan */}
             <div className="flex justify-between mt-4 text-xs font-bold text-muted-foreground px-2">
-              {chartRawData.map((d) => <span key={d.id}>{d.month}</span>)}
+              {filteredChartData.map((d) => <span key={d.id}>{d.month}</span>)}
             </div>
           </div>
         )}
