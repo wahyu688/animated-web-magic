@@ -7,6 +7,8 @@ import {
   Bell, Search, Settings, Users, Zap, CreditCard, Activity, Menu, BookOpen, DollarSign
 } from "lucide-react";
 import { useCompany } from "@/hooks/use-company";
+import { LogOut } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const navItems = [
   { icon: Home, label: "Dashboard", path: "/dashboard" },
@@ -27,6 +29,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  
+  // -- LOGOUT BUTTON ---
+    const handleLogout = async () => {
+    await supabase.auth.signOut();
+
+    navigate("/login");
+  };
   
   // --- STATE PROFIL & NOTIFIKASI ---
   const [profile, setProfile] = useState({ firstName: "Loading...", lastName: "", email: "..." });
@@ -233,6 +243,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
           <div className="flex items-center gap-3">
             
+             <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-white hover:bg-muted transition-colors text-sm font-medium"
+            >
+              <LogOut className="h-4 w-4" />
+              Logout
+            </button>
+
             <Link to="/activity" className="relative p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors cursor-pointer block">
               <Bell className="h-5 w-5" />
               {unreadCount > 0 && (
