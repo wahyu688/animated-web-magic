@@ -131,7 +131,7 @@ export default function LoginPage() {
           playsInline
           className="absolute inset-0 w-full h-full object-cover"
         >
-          <source src="C:\Users\wulan\OneDrive\Documents\dokumen wahyu\Software Engineering\animated-web-magic\dist\assets\LoginPage.mp4" type="video/mp4" />
+          <source src="/videos/LoginPage.mp4" type="video/mp4" />
         </video>
 
         {/* DARK OVERLAY */}
@@ -149,7 +149,7 @@ export default function LoginPage() {
             className="flex items-center gap-2 w-max cursor-pointer hover:opacity-90 transition-opacity"
           >
           <img
-            src="C:\Users\wulan\OneDrive\Documents\dokumen wahyu\Software Engineering\animated-web-magic\dist\assets\nextflowIcon-Cd3kiR7z.ico"
+            src="/nextflowIcon-Cd3kiR7z.ico"
             alt="NexusFlow Logo"
             className="w-12 h-12 object-contain"
           />
