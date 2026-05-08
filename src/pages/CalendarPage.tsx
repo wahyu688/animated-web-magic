@@ -37,6 +37,11 @@ const getLocalTodayStr = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
+const normalizeDateStr = (date: Date | string) => {
+  const d = new Date(date);
+
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
 
 // Fungsi dinamis untuk membuat grid kalender berdasarkan bulan yang dipilih
 const generateCalendarDays = (baseDateStr: string) => {
@@ -106,7 +111,7 @@ export default function CalendarPage() {
     duration: d.duration,
     color: d.color,
     description: d.description,
-    dateStr: d.date_str
+    dateStr: normalizeDateStr(d.date_str)
   });
 
   const fetchEvents = useCallback(async (showLoading = false) => {
@@ -180,7 +185,11 @@ export default function CalendarPage() {
     for (let i = 0; i < 7; i++) {
       const d = new Date(weekStart);
       d.setDate(d.getDate() + i);
-      week.push({ dateStr: d.toISOString().split('T')[0], dayNum: d.getDate(), dayName: fullDaysOfWeek[d.getDay()] });
+      week.push({
+        dateStr: normalizeDateStr(d),
+        dayNum: d.getDate(),
+        dayName: fullDaysOfWeek[d.getDay()]
+      });
     }
     return week;
   }, [selectedDateStr]);
@@ -239,7 +248,7 @@ export default function CalendarPage() {
     const eventPayload = {
       company_id: companyId,
       title: newEventTitle,
-      date_str: newEventDateStr,
+      date_str: normalizeDateStr(newEventDateStr),
       time: newEventTime,
       duration: Number(newEventDuration),
       color: newEventColor,
@@ -405,7 +414,11 @@ export default function CalendarPage() {
                 ))}
                 <div className={`grid ${viewMode === "Week" ? "grid-cols-7" : "grid-cols-1"} h-full absolute inset-0 pl-10 pr-2`}>
                   {(viewMode === "Week" ? currentWeekDays : currentWeekDays.filter(d => d.dateStr === selectedDateStr)).map((day) => {
-                    const dayEvents = allEvents.filter(e => e.dateStr === day.dateStr);
+                    const dayEvents = allEvents.filter(
+                      e =>
+                        normalizeDateStr(e.dateStr) ===
+                        normalizeDateStr(day.dateStr)
+                    );
                     return (
                       <div key={day.dateStr} className="relative border-r border-border/50 last:border-r-0" onDoubleClick={() => handleOpenCreateForm(day.dateStr)}>
                         {dayEvents.map((ev, ei) => {
