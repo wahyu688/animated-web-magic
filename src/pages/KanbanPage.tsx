@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Plus, MoreHorizontal, MessageSquare, Paperclip, Clock, Loader2 } from "lucide-react";
+import {Plus, MoreHorizontal, MessageSquare, Paperclip, Clock, Loader2, Trash2} from "lucide-react";
 import TaskSlideover from "@/components/modals/TaskSlideover"; 
 import { DragDropContext, Droppable, Draggable, DropResult } from "@hello-pangea/dnd";
 import { supabase } from "../lib/supabase";
@@ -250,6 +250,64 @@ export default function KanbanPage() {
     }
   };
 
+  const handleDeleteTask = async (taskId: string) => {
+
+    if (!companyId) {
+      toast({
+        title: "Company Error",
+        description: "Company context belum tersedia.",
+        variant: "destructive",
+      });
+
+      return;
+    }
+
+    try {
+
+      const { error } = await supabase
+        .from("kanban_tasks")
+        .delete()
+        .eq("company_id", companyId)
+        .eq("id", taskId);
+
+      if (error) throw error;
+
+      setColumnsData((prev) =>
+        prev.map((column) => ({
+          ...column,
+          tasks: column.tasks.filter(
+            (task) => task.id !== taskId
+          ),
+        }))
+      );
+
+      toast({
+        title: "Task Deleted",
+        description: "Task berhasil dihapus.",
+      });
+
+      await logActivity({
+        user: "You",
+        action: "deleted a task",
+        target: taskId,
+        type: "warning",
+        iconName: "Trash2",
+        iconBg: "bg-destructive/10 text-destructive",
+        companyId,
+      });
+
+    } catch (err) {
+
+      console.error("Delete Task Error:", err);
+
+      toast({
+        title: "Delete Failed",
+        description: "Gagal menghapus task.",
+        variant: "destructive",
+      });
+    }
+  };
+
   // --- HANDLER ADD NEW TASK (Simpan ke DB) ---
   const handleAddTask = async (columnId: string) => {
     if (!companyId) {
@@ -397,12 +455,29 @@ export default function KanbanPage() {
                                 }`}
                               >
                                 <div className="flex items-start justify-between mb-2">
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide ${task.tagColor}`}>
-                                    {task.tag}
-                                  </span>
-                                  {task.priority === "high" && (
-                                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-destructive/10 text-destructive uppercase">High</span>
-                                  )}
+
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide ${task.tagColor}`}>{task.tag}</span>
+
+                                  <div className="flex items-center gap-2">
+
+                                    {task.priority === "high" && (
+                                      <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-destructive/10 text-destructive uppercase">
+                                        High
+                                      </span>
+                                    )}
+
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleDeleteTask(task.id);
+                                      }}
+                                      className="text-muted-foreground hover:text-destructive transition-colors"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+
+                                  </div>
+
                                 </div>
                                 <h4 className="text-sm font-medium text-foreground mb-3 leading-snug">{task.title}</h4>
                                 <div className="flex items-center justify-between pt-2 border-t border-border/50">
