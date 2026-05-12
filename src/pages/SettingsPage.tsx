@@ -49,7 +49,7 @@ function GeneralTab({ session }: { session: Session | null }) {
   useEffect(() => {
     const fetchProfile = async () => {
       if (!session?.user?.id) return;
-      const { data, error } = await supabase.from("profiles").select('*').eq('id', session.user.id).single();
+      const { data, error } = await supabase.from("profiles").select('*').eq('id', session.user.id).maybeSingle();
       
       if (data) {
         setProfile({
@@ -250,7 +250,7 @@ function NotificationsTab({ session }: { session: Session | null }) {
   useEffect(() => {
     const fetchPrefs = async () => {
       if (!session?.user?.id) return;
-      const { data } = await supabase.from("profiles").select('*').eq('id', session.user.id).single();
+      const { data } = await supabase.from("profiles").select('*').eq('id', session.user.id).maybeSingle();
       if (data) {
         setPrefs({
           email_mentions: data.email_mentions ?? true,

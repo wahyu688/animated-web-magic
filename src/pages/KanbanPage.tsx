@@ -346,7 +346,7 @@ export default function KanbanPage() {
         .from('kanban_tasks')
         .insert([newTaskDB])
         .select('*')
-        .single();
+        .maybeSingle();
       
       if (error) throw error;
 

@@ -135,7 +135,7 @@ export default function FinancialPage() {
         if (error) throw error;
       } else {
         // Jika akun baru kosong, Insert
-        const kpiRes = await supabase.from('dashboard_kpis').insert({ company_id: companyId, ...kpiPayload }).select().single();
+        const kpiRes = await supabase.from('dashboard_kpis').insert({ company_id: companyId, ...kpiPayload }).select().maybeSingle();
         if (kpiRes.error) throw kpiRes.error;
         if (kpiRes.data) setKpiId(kpiRes.data.id);
       }
@@ -158,7 +158,7 @@ export default function FinancialPage() {
           current_val: rev,
           previous_val: target,
           sort_order: sortOrder
-        }).select().single();
+        }).select().maybeSingle();
 
         if (chartRes.error) throw chartRes.error;
         if (chartRes.data) {
