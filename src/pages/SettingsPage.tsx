@@ -49,7 +49,7 @@ function GeneralTab({ session }: { session: Session | null }) {
   useEffect(() => {
     const fetchProfile = async () => {
       if (!session?.user?.id) return;
-      const { data, error } = await supabase.from('user_profiles').select('*').eq('id', session.user.id).single();
+      const { data, error } = await supabase.from("profiles").select('*').eq('id', session.user.id).single();
       
       if (data) {
         setProfile({
@@ -76,7 +76,7 @@ function GeneralTab({ session }: { session: Session | null }) {
       updated_at: new Date(),
     };
 
-    const { error } = await supabase.from('user_profiles').upsert(updates);
+    const { error } = await supabase.from("profiles").upsert(updates);
 
     if (error) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
@@ -250,7 +250,7 @@ function NotificationsTab({ session }: { session: Session | null }) {
   useEffect(() => {
     const fetchPrefs = async () => {
       if (!session?.user?.id) return;
-      const { data } = await supabase.from('user_profiles').select('*').eq('id', session.user.id).single();
+      const { data } = await supabase.from("profiles").select('*').eq('id', session.user.id).single();
       if (data) {
         setPrefs({
           email_mentions: data.email_mentions ?? true,
@@ -271,7 +271,7 @@ function NotificationsTab({ session }: { session: Session | null }) {
     if (!session?.user?.id) return;
     setIsLoading(true);
     
-    const { error } = await supabase.from('user_profiles').upsert({ id: session.user.id, ...prefs });
+    const { error } = await supabase.from("profiles").upsert({ id: session.user.id, ...prefs });
     
     if (error) {
       toast({ title: "Error", description: "Failed to save preferences.", variant: "destructive" });

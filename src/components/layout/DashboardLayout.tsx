@@ -52,7 +52,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       if (error) console.error("Profile auth fetch error:", error);
       if (user && isMountedRef.current) {
         // Ambil data dari tabel user_profiles
-        const { data, error: profileError } = await supabase.from('user_profiles').select('first_name, last_name').eq('id', user.id).single();
+        const { data, error: profileError } = await supabase.from("profiles").select('first_name, last_name').eq('id', user.id).single();
         if (profileError) console.error("Profile fetch error:", profileError);
         
         setProfile({
