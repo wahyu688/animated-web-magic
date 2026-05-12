@@ -81,6 +81,8 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
       const query = supabase
         .from('kanban_tasks')
         .update({
+          title,
+          priority,
           description: updatedDesc,
           subtasks: updatedSubtasks,
           activities: updatedActivities
@@ -179,7 +181,7 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded w-max uppercase tracking-wide mb-2 ${task.tag_color || task.tagColor}`}>
                   {task.tag}
                 </span>
-                <h2 className="text-xl font-bold text-foreground">{task.title}</h2>
+                <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} onBlur={() => handleSaveToDB(description, subtasks,activities)} placeholder="Task title..." className="text-xl font-bold text-foreground bg-transparent border-none outline-none focus:ring-0 w-full"/>
               </div>
               <button onClick={onClose} className="p-2 bg-muted hover:bg-border rounded-full transition-colors text-muted-foreground">
                 <X className="w-5 h-5" />
