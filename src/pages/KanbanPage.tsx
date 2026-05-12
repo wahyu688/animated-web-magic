@@ -28,6 +28,8 @@ interface Task {
   activities: Activity[];
   created_at: string;
   updated_at: string;
+  assignee_id?: string | null;
+  assignee_name?: string | null;
 }
 
 interface Subtask {
@@ -481,8 +483,10 @@ export default function KanbanPage() {
                                 </div>
                                 <h4 className="text-sm font-medium text-foreground mb-3 leading-snug">{task.title}</h4>
                                 <div className="flex items-center justify-between pt-2 border-t border-border/50">
-                                  <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-[10px] font-bold">
-                                    A
+                                  <div className="w-6 h-6 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-[10px] font-bold uppercase">
+                                    {task.assignee_name
+                                      ? task.assignee_name[0]
+                                      : "A"}
                                   </div>
                                   <div className="flex items-center gap-3 text-muted-foreground text-xs">
                                     {task.comments > 0 && (

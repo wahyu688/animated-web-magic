@@ -29,6 +29,8 @@ interface KanbanTask {
   subtasks?: Subtask[];
   activities?: Activity[];
   priority?: "high" | "medium" | "low" | null;
+  assignee_id?: string | null;
+  assignee_name?: string | null;
 }
 
 interface TaskSlideoverProps {
@@ -40,12 +42,14 @@ interface TaskSlideoverProps {
 }
 
 export default function TaskSlideover({ open, onClose, task, onTaskUpdated, companyId }: TaskSlideoverProps) {
-  // State untuk form
+  // State 
   const [description, setDescription] = useState("");
   const [title, setTitle] = useState("");
   const [priority, setPriority] = useState("medium");
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
+  const [members, setMembers] = useState<any[]>([]);
+  const [assigneeId, setAssigneeId] = useState("");
   
   const [isEditingDesc, setIsEditingDesc] = useState(false);
   const [newSubtask, setNewSubtask] = useState("");
@@ -64,8 +68,26 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
       setIsEditingDesc(!task.description); 
       setTitle(task.title || "");
       setPriority(task.priority || "medium");
+      setAssigneeId(task.assignee_id || "");
     }
   }, [task]);
+
+  useEffect(() => {
+
+    const fetchMembers = async () => {
+      if (!companyId) return;
+      const { data, error } = await supabase
+        .from("company_members")
+        .select(`user_id,user_profiles (first_name,last_name)`)
+        .eq("company_id", companyId);
+      if (!error && data) {
+        setMembers(data);
+      }
+    };
+
+    fetchMembers();
+
+  }, [companyId]);
 
   // Fungsi simpan ke Supabase
   const handleSaveToDB = async (updatedDesc: string, updatedSubtasks: Subtask[], updatedActivities: Activity[]) => {
@@ -85,6 +107,7 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
           priority,
           description: updatedDesc,
           subtasks: updatedSubtasks,
+          assignee_id: assigneeId,
           activities: updatedActivities
         })
         .eq('company_id', companyId)
@@ -191,6 +214,35 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
             {/* Content Scrollable */}
             <div className="flex-1 overflow-y-auto p-6 space-y-8">
               
+              <div>
+                <label className="text-xs font-bold text-muted-foreground uppercase mb-2 block">
+                  Assignee
+                </label>
+
+                <select
+                  value={assigneeId}
+                  onChange={(e) => {
+                    setAssigneeId(e.target.value);
+
+                    setTimeout(() => {
+                      handleSaveToDB(description,subtasks,activities);
+                    }, 0);
+                  }}
+                  className="w-full h-11 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20">
+                  <option value="">Unassigned</option>
+                  {members.map((member: any) => {
+                    const profile = Array.isArray(member.user_profiles)
+                      ? member.user_profiles[0]
+                      : member.user_profiles;
+                    return (
+                      <option key={member.user_id} value={member.user_id}>
+                        {profile?.first_name} {profile?.last_name}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
+
               {/* DESCRIPTION SECTION */}
               <div>
                 <div className="flex items-center justify-between mb-3">
