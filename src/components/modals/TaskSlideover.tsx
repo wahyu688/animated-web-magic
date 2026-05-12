@@ -28,6 +28,7 @@ interface KanbanTask {
   description?: string | null;
   subtasks?: Subtask[];
   activities?: Activity[];
+  priority?: "high" | "medium" | "low" | null;
 }
 
 interface TaskSlideoverProps {
@@ -41,6 +42,8 @@ interface TaskSlideoverProps {
 export default function TaskSlideover({ open, onClose, task, onTaskUpdated, companyId }: TaskSlideoverProps) {
   // State untuk form
   const [description, setDescription] = useState("");
+  const [title, setTitle] = useState("");
+  const [priority, setPriority] = useState("medium");
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   
@@ -58,7 +61,9 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
       setDescription(task.description || "");
       setSubtasks(task.subtasks || []);
       setActivities(task.activities || []);
-      setIsEditingDesc(!task.description); // Jika kosong, otomatis buka mode edit
+      setIsEditingDesc(!task.description); 
+      setTitle(task.title || "");
+      setPriority(task.priority || "medium");
     }
   }, [task]);
 
