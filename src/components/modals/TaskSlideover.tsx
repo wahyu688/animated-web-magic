@@ -78,7 +78,10 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
       if (!companyId) return;
       const { data, error } = await supabase
         .from("company_members")
-        .select(`user_id,user_profiles (first_name,last_name)`)
+        .select(`
+          user_id,
+          profiles (first_name,last_name)
+        `)
         .eq("company_id", companyId);
       if (!error && data) {
         setMembers(data);
@@ -231,9 +234,9 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
                   className="w-full h-11 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20">
                   <option value="">Unassigned</option>
                   {members.map((member: any) => {
-                    const profile = Array.isArray(member.user_profiles)
-                      ? member.user_profiles[0]
-                      : member.user_profiles;
+                    const profile = Array.isArray(member.profiles)
+                      ? member.profiles[0]
+                      : member.profiles;
                     return (
                       <option key={member.user_id} value={member.user_id}>
                         {profile?.first_name} {profile?.last_name}
