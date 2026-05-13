@@ -9,6 +9,7 @@ import {
 import { useCompany } from "@/hooks/use-company";
 import { LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { clearCompanyCache } from "@/lib/company";
 
 const navItems = [
   { icon: Home, label: "Dashboard", path: "/dashboard" },
@@ -34,6 +35,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   // -- LOGOUT BUTTON ---
     const handleLogout = async () => {
     await supabase.auth.signOut();
+    clearCompanyCache();
 
     navigate("/login");
   };
@@ -98,7 +100,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     fetchUnreadCount();
 
     const channel = supabase
-      .channel('navbar-notifications-realtime')
+      .channel(`navbar-notifications-realtime:${companyId}`)
       .on(
         'postgres_changes',
         {
@@ -125,7 +127,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
     return () => {
       isMountedRef.current = false;
-      channel.unsubscribe();
       supabase.removeChannel(channel);
     };
   }, [companyId, fetchUnreadCount]);

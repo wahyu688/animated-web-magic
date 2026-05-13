@@ -104,6 +104,13 @@ export default function CalendarPage() {
   const [newEventDuration, setNewEventDuration] = useState(1);
   const [newEventColor, setNewEventColor] = useState("bg-primary");
 
+  useEffect(() => {
+    if (!isCompanyLoading && !companyId) {
+      setIsLoading(false);
+      setAllEvents([]);
+    }
+  }, [companyId, isCompanyLoading]);
+
   const formatEvent = (d: CalendarEventRow): CalendarEvent => ({
     id: d.id,
     title: d.title,
@@ -143,7 +150,7 @@ export default function CalendarPage() {
     if (!companyId) return;
     fetchEvents(true);
 
-    const channel = supabase.channel('calendar-events-realtime')
+    const channel = supabase.channel(`calendar-events-realtime:${companyId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events', filter: `company_id=eq.${companyId}` }, (payload) => {
         console.info("[calendar realtime] change received:", payload.eventType, payload);
         fetchEvents();
@@ -158,7 +165,6 @@ export default function CalendarPage() {
 
     return () => {
       isMountedRef.current = false;
-      channel.unsubscribe();
       supabase.removeChannel(channel);
     };
   }, [companyId, fetchEvents]);

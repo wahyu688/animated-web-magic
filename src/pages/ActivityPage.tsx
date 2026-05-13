@@ -77,6 +77,13 @@ export default function ActivityPage() {
   const fetchRequestIdRef = useRef(0);
   const { companyId, isCompanyLoading, companyError } = useCompany();
 
+  useEffect(() => {
+    if (!isCompanyLoading && !companyId) {
+      setIsLoading(false);
+      setNotifications([]);
+    }
+  }, [companyId, isCompanyLoading]);
+
   // --- UI STATES ---
   const [activeTab, setActiveTab] = useState<"All Activity" | "Mentions" | "System">("All Activity");
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -121,7 +128,7 @@ export default function ActivityPage() {
     if (!companyId) return;
     fetchNotifications(true);
 
-    const channel = supabase.channel('activity-notifications-realtime')
+    const channel = supabase.channel(`activity-notifications-realtime:${companyId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `company_id=eq.${companyId}` }, (payload) => {
         console.info("[activity realtime] change received:", payload.eventType, payload);
         fetchNotifications();
@@ -136,7 +143,6 @@ export default function ActivityPage() {
 
     return () => {
       isMountedRef.current = false;
-      channel.unsubscribe();
       supabase.removeChannel(channel);
     };
   }, [companyId, fetchNotifications]);

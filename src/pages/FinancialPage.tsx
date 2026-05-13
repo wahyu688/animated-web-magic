@@ -27,6 +27,14 @@ export default function FinancialPage() {
   const isMountedRef = useRef(false);
   const { companyId, isCompanyLoading, companyError } = useCompany();
 
+  useEffect(() => {
+    if (!isCompanyLoading && !companyId) {
+      setIsLoading(false);
+      setKpiId("");
+      setChartData([]);
+    }
+  }, [companyId, isCompanyLoading]);
+
   // State Form Input Mentah (Raw Data)
   const [formData, setFormData] = useState({
     month: "Jan", // Default ke bulan pertama
@@ -69,7 +77,7 @@ export default function FinancialPage() {
     if (!companyId) return;
     fetchFinanceData(true);
 
-    const channel = supabase.channel('financial-metrics-realtime')
+    const channel = supabase.channel(`financial-metrics-realtime:${companyId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'dashboard_kpis', filter: `company_id=eq.${companyId}` }, () => fetchFinanceData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chart_data', filter: `company_id=eq.${companyId}` }, () => fetchFinanceData())
       .subscribe((status, error) => {
@@ -82,7 +90,6 @@ export default function FinancialPage() {
 
     return () => {
       isMountedRef.current = false;
-      channel.unsubscribe();
       supabase.removeChannel(channel);
     };
   }, [companyId, fetchFinanceData]);

@@ -101,6 +101,15 @@ export default function DashboardPage() {
   const navigate = useNavigate();
   const { companyId, isCompanyLoading, companyError } = useCompany();
 
+  useEffect(() => {
+    if (!isCompanyLoading && !companyId) {
+      setIsLoadingDB(false);
+      setTopPages([]);
+      setTrafficSources([]);
+      setChartRawData([]);
+    }
+  }, [companyId, isCompanyLoading]);
+
   // 1. Cek User Session
   useEffect(() => {
     const checkUser = async () => {
@@ -161,7 +170,7 @@ export default function DashboardPage() {
     isMountedRef.current = true;
     fetchDashboardInfo(true);
 
-    const channel = supabase.channel('dashboard-metrics-realtime')
+    const channel = supabase.channel(`dashboard-metrics-realtime:${companyId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'traffic_sources', filter: `company_id=eq.${companyId}` }, () => fetchDashboardInfo())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'top_pages', filter: `company_id=eq.${companyId}` }, () => fetchDashboardInfo())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'dashboard_kpis', filter: `company_id=eq.${companyId}` }, () => fetchDashboardInfo())
@@ -176,7 +185,6 @@ export default function DashboardPage() {
 
     return () => {
       isMountedRef.current = false;
-      channel.unsubscribe();
       supabase.removeChannel(channel);
     };
   }, [companyId, userEmail, fetchDashboardInfo]);

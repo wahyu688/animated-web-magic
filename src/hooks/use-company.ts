@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getCurrentCompany } from "@/lib/company";
+import { clearCompanyCache, getCurrentCompany } from "@/lib/company";
 import { supabase } from "@/lib/supabase";
 
 export function useCompany() {
@@ -8,27 +8,22 @@ export function useCompany() {
   const [isCompanyLoading, setIsCompanyLoading] = useState(true);
   const [companyError, setCompanyError] = useState<Error | null>(null);
 
-  const isFetchingRef = useRef(false);
+  const requestIdRef = useRef(0);
+  const mountedRef = useRef(false);
 
   const loadCompany = useCallback(async () => {
-    if (isFetchingRef.current) return;
-
-    isFetchingRef.current = true;
-
-    setCompanyError(null);
+    const requestId = ++requestIdRef.current;
 
     try {
+      setCompanyError(null);
       const company = await getCurrentCompany();
 
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
       setCompanyId(company?.companyId ?? null);
       setUserId(company?.userId ?? null);
     } catch (error) {
-      if (
-        !(error instanceof Error) ||
-        error.name !== "AuthSessionMissingError"
-      ) {
-        console.error("Company context error:", error);
-      }
+      if (!mountedRef.current || requestId !== requestIdRef.current) return;
+      console.error("Company context error:", error);
 
       setCompanyId(null);
       setUserId(null);
@@ -39,24 +34,23 @@ export function useCompany() {
           : new Error("Failed to load company context.")
       );
     } finally {
-      setIsCompanyLoading(false);
-      isFetchingRef.current = false;
+      if (mountedRef.current && requestId === requestIdRef.current) {
+        setIsCompanyLoading(false);
+      }
     }
   }, []);
 
   const refreshCompany = useCallback(async () => {
+    clearCompanyCache();
     setIsCompanyLoading(true);
     await loadCompany();
   }, [loadCompany]);
 
   useEffect(() => {
-    let mounted = true;
+    mountedRef.current = true;
 
     const initialize = async () => {
-      if (!mounted) return;
-
       setIsCompanyLoading(true);
-
       await loadCompany();
     };
 
@@ -65,13 +59,12 @@ export function useCompany() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-
-        console.log("Auth state changed:", event);
-
-        if (!mounted) return;
+      async (_event, session) => {
+        if (!mountedRef.current) return;
+        clearCompanyCache();
 
         if (!session) {
+          requestIdRef.current += 1;
           setCompanyId(null);
           setUserId(null);
           setCompanyError(null);
@@ -79,12 +72,13 @@ export function useCompany() {
           return;
         }
 
+        setIsCompanyLoading(true);
         await loadCompany();
       }
     );
 
     return () => {
-      mounted = false;
+      mountedRef.current = false;
       subscription.unsubscribe();
     };
 

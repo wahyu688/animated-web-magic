@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, CheckCircle2, Circle, Plus, Save, Loader2, MessageSquare } from "lucide-react";
 import { supabase } from "../../lib/supabase";
@@ -41,6 +41,24 @@ interface TaskSlideoverProps {
   companyId?: string | null;
 }
 
+interface MemberOption {
+  user_id: string;
+  name: string;
+}
+
+interface MemberRow {
+  user_id: string;
+  user_profiles?: {
+    first_name?: string | null;
+    last_name?: string | null;
+    email?: string | null;
+  } | Array<{
+    first_name?: string | null;
+    last_name?: string | null;
+    email?: string | null;
+  }> | null;
+}
+
 export default function TaskSlideover({ open, onClose, task, onTaskUpdated, companyId }: TaskSlideoverProps) {
   // State 
   const [description, setDescription] = useState("");
@@ -48,7 +66,7 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
   const [priority, setPriority] = useState("medium");
   const [subtasks, setSubtasks] = useState<Subtask[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
-  const [members, setMembers] = useState<any[]>([]);
+  const [members, setMembers] = useState<MemberOption[]>([]);
   const [assigneeId, setAssigneeId] = useState("");
   
   const [isEditingDesc, setIsEditingDesc] = useState(false);
@@ -80,11 +98,24 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
         .from("company_members")
         .select(`
           user_id,
-          user_profiles (first_name,last_name)
+          user_profiles (first_name,last_name,email)
         `)
-        .eq("company_id", companyId);
+        .eq("company_id", companyId)
+        .eq("status", "active");
       if (!error && data) {
-        setMembers(data);
+        setMembers((data as MemberRow[]).map((member) => {
+          const profile = Array.isArray(member.user_profiles)
+            ? member.user_profiles[0]
+            : member.user_profiles;
+          const name = `${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim()
+            || profile?.email
+            || "Unnamed member";
+
+          return {
+            user_id: member.user_id,
+            name,
+          };
+        }));
       }
     };
 
@@ -93,7 +124,12 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
   }, [companyId]);
 
   // Fungsi simpan ke Supabase
-  const handleSaveToDB = async (updatedDesc: string, updatedSubtasks: Subtask[], updatedActivities: Activity[]) => {
+  const handleSaveToDB = useCallback(async (
+    updatedDesc: string,
+    updatedSubtasks: Subtask[],
+    updatedActivities: Activity[],
+    overrides?: { title?: string; priority?: string; assigneeId?: string }
+  ) => {
     if (!task) return;
     if (!companyId) {
       toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
@@ -102,15 +138,21 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
 
     setIsSaving(true);
 
+    const nextAssigneeId = overrides?.assigneeId ?? assigneeId;
+    const assigneeName = nextAssigneeId
+      ? members.find((member) => member.user_id === nextAssigneeId)?.name ?? null
+      : null;
+
     try {
       const query = supabase
         .from('kanban_tasks')
         .update({
-          title,
-          priority,
+          title: overrides?.title ?? title,
+          priority: overrides?.priority ?? priority,
           description: updatedDesc,
           subtasks: updatedSubtasks,
-          assignee_id: assigneeId,
+          assignee_id: nextAssigneeId || null,
+          assignee_name: assigneeName,
           activities: updatedActivities
         })
         .eq('company_id', companyId)
@@ -127,7 +169,7 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
     } finally {
       setIsSaving(false);
     }
-  };
+  }, [assigneeId, companyId, members, onTaskUpdated, priority, task, title, toast]);
 
   // --- HANDLERS ---
   const handleSaveDesc = () => {
@@ -183,6 +225,7 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
   };
 
   const completedCount = subtasks.filter(s => s.completed).length;
+  const assigneeOptions = useMemo(() => members, [members]);
 
   return (
     <AnimatePresence>
@@ -225,24 +268,17 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
                 <select
                   value={assigneeId}
                   onChange={(e) => {
-                    setAssigneeId(e.target.value);
-
-                    setTimeout(() => {
-                      handleSaveToDB(description,subtasks,activities);
-                    }, 0);
+                    const nextAssigneeId = e.target.value;
+                    setAssigneeId(nextAssigneeId);
+                    handleSaveToDB(description, subtasks, activities, { assigneeId: nextAssigneeId });
                   }}
                   className="w-full h-11 rounded-xl border border-border bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-primary/20">
                   <option value="">Unassigned</option>
-                  {members.map((member: any) => {
-                    const profile = Array.isArray(member.user_profiles)
-                      ? member.user_profiles[0]
-                      : member.user_profiles;
-                    return (
-                      <option key={member.user_id} value={member.user_id}>
-                        {profile?.first_name} {profile?.last_name}
-                      </option>
-                    );
-                  })}
+                  {assigneeOptions.map((member) => (
+                    <option key={member.user_id} value={member.user_id}>
+                      {member.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 

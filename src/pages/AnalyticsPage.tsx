@@ -87,6 +87,13 @@ export default function AnalyticsPage() {
   const { companyId, isCompanyLoading, companyError } = useCompany();
 
   useEffect(() => {
+    if (!isCompanyLoading && !companyId) {
+      setIsLoadingDB(false);
+      setChartRawData([]);
+    }
+  }, [companyId, isCompanyLoading]);
+
+  useEffect(() => {
     const checkUser = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) navigate("/login");
@@ -140,7 +147,7 @@ export default function AnalyticsPage() {
     isMountedRef.current = true;
     fetchAnalyticsData(true);
 
-    const channel = supabase.channel('analytics-metrics-realtime')
+    const channel = supabase.channel(`analytics-metrics-realtime:${companyId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'dashboard_kpis', filter: `company_id=eq.${companyId}` }, () => fetchAnalyticsData())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'chart_data', filter: `company_id=eq.${companyId}` }, () => fetchAnalyticsData())
       .subscribe((status, error) => {
@@ -153,7 +160,6 @@ export default function AnalyticsPage() {
 
     return () => {
       isMountedRef.current = false;
-      channel.unsubscribe();
       supabase.removeChannel(channel);
     };
   }, [companyId, userEmail, fetchAnalyticsData]);

@@ -10,6 +10,7 @@ import { useCompany } from "@/hooks/use-company";
 // --- TYPES & UTILS ---
 interface TeamMember {
   id: string;
+  userId?: string;
   name: string;
   email: string;
   role: string;
@@ -30,6 +31,15 @@ interface UserProfileRow {
   created_at?: string | null;
 }
 
+interface CompanyMemberRow {
+  id: string;
+  user_id: string;
+  role?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  user_profiles?: UserProfileRow | UserProfileRow[] | null;
+}
+
 interface InvitationRow {
   id: string;
   company_id: string;
@@ -45,6 +55,20 @@ const roleIcons: Record<string, LucideIcon> = {
 };
 
 const avatarColors = ["bg-primary", "bg-info", "bg-success", "bg-warning", "bg-violet-500", "bg-destructive"];
+
+const toUiRole = (role?: string | null) => {
+  if (role === "owner" || role === "admin") return "Admin";
+  if (role === "editor") return "Editor";
+  return "Viewer";
+};
+
+const toDbRole = (role: string) => {
+  if (role === "Admin") return "admin";
+  if (role === "Editor") return "editor";
+  return "member";
+};
+
+const colorFor = (value: string) => avatarColors[Math.abs([...value].reduce((sum, char) => sum + char.charCodeAt(0), 0)) % avatarColors.length];
 
 const statusStyles: Record<string, string> = {
   Active: "bg-success/10 text-success",
@@ -78,6 +102,13 @@ export default function TeamPage() {
   const [formData, setFormData] = useState({ name: "", email: "", role: "Viewer", status: "Active" });
   const [isSaving, setIsSaving] = useState(false);
 
+  useEffect(() => {
+    if (!isCompanyLoading && !companyId) {
+      setIsLoading(false);
+      setMembers([]);
+    }
+  }, [companyId, isCompanyLoading]);
+
   // --- FETCH DATA (GABUNGAN PROFIL & UNDANGAN) ---
   const fetchMembers = useCallback(async (showLoading = false) => {
     if (!companyId) return;
@@ -85,8 +116,19 @@ export default function TeamPage() {
     try {
       if (showLoading) setIsLoading(true);
 
-      // 1. Ambil Karyawan Aktif
-      const { data: activeProfiles, error: activeError } = await supabase.from("user_profiles").select('*').eq('company_id', companyId);
+      // 1. Ambil Karyawan Aktif dari company_members, lalu join ke user_profiles.
+      const { data: activeMembers, error: activeError } = await supabase
+        .from("company_members")
+        .select(`
+          id,
+          user_id,
+          role,
+          status,
+          created_at,
+          user_profiles (*)
+        `)
+        .eq("company_id", companyId)
+        .eq("status", "active");
       
       // 2. Ambil Undangan Pending
       const { data: pendingInvites, error: invitesError } = await supabase.from('invitations').select('*').eq('company_id', companyId).eq('status', 'pending');
@@ -95,19 +137,24 @@ export default function TeamPage() {
 
       const combinedData: TeamMember[] = [];
 
-        // Format Karyawan Aktif
-        if (activeProfiles) {
-          (activeProfiles as UserProfileRow[]).forEach((p) => {
-            const fullName = `${p.first_name || ''} ${p.last_name || ''}`.trim() || 'Unknown User';
+        if (activeMembers) {
+          (activeMembers as CompanyMemberRow[]).forEach((member) => {
+            const profile = Array.isArray(member.user_profiles)
+              ? member.user_profiles[0]
+              : member.user_profiles;
+            if (!profile) return;
+
+            const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.email || 'Unknown User';
             combinedData.push({
-              id: p.id,
+              id: member.id,
+              userId: member.user_id,
               name: fullName,
-              email: p.email || "No Email",
-              role: p.role === 'owner' ? 'Admin' : 'Viewer', // Mapping sementara
+              email: profile.email || "No Email",
+              role: toUiRole(member.role ?? profile.role),
               status: "Active",
-              date_added: new Date(p.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
+              date_added: new Date(member.created_at || profile.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
               initials: fullName.substring(0, 2).toUpperCase(),
-              color: avatarColors[Math.floor(Math.random() * avatarColors.length)],
+              color: colorFor(profile.id),
               is_invite: false
             });
           });
@@ -144,7 +191,8 @@ export default function TeamPage() {
     if (!companyId) return;
     fetchMembers(true);
 
-    const channel = supabase.channel('team-members-realtime')
+    const channel = supabase.channel(`team-members-realtime:${companyId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'company_members', filter: `company_id=eq.${companyId}` }, () => fetchMembers())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'user_profiles', filter: `company_id=eq.${companyId}` }, () => fetchMembers())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'invitations', filter: `company_id=eq.${companyId}` }, () => fetchMembers())
       .subscribe((status, error) => {
@@ -157,7 +205,6 @@ export default function TeamPage() {
 
     return () => {
       isMountedRef.current = false;
-      channel.unsubscribe();
       supabase.removeChannel(channel);
     };
   }, [companyId, fetchMembers]);
@@ -206,8 +253,21 @@ export default function TeamPage() {
           if (error) throw error;
         } else {
           // Cabut akses karyawan dari perusahaan (Set company_id jadi null)
-          const { error } = await supabase.from("user_profiles").update({ company_id: null }).eq('company_id', companyId).eq('id', deleteTarget.id);
+          const { error } = await supabase
+            .from("company_members")
+            .update({ status: "removed" })
+            .eq("company_id", companyId)
+            .eq("id", deleteTarget.id);
           if (error) throw error;
+
+          if (deleteTarget.userId) {
+            const { error: profileError } = await supabase
+              .from("user_profiles")
+              .update({ company_id: null })
+              .eq("company_id", companyId)
+              .eq("id", deleteTarget.userId);
+            if (profileError) throw profileError;
+          }
         }
         
         toast({ title: "Member removed", description: "Access has been successfully revoked." });
@@ -269,13 +329,37 @@ export default function TeamPage() {
     setIsSaving(true);
 
     try {
-      // =====================================================
-      // CHECK DUPLICATE
-      // =====================================================
+      const normalizedEmail = formData.email.trim().toLowerCase();
+
+      if (editTargetId) {
+        const role = toDbRole(formData.role);
+        const { error: memberError } = await supabase
+          .from("company_members")
+          .update({ role })
+          .eq("company_id", companyId)
+          .eq("id", editTargetId);
+
+        if (memberError) throw memberError;
+
+        const editedMember = members.find((m) => m.id === editTargetId);
+        if (editedMember?.userId) {
+          const { error: profileError } = await supabase
+            .from("user_profiles")
+            .update({ role })
+            .eq("id", editedMember.userId);
+
+          if (profileError) throw profileError;
+        }
+
+        toast({ title: "Member Updated", description: "Role berhasil diperbarui." });
+        setIsModalOpen(false);
+        await fetchMembers();
+        return;
+      }
 
       if (
         members.some(
-          (m) => m.email.toLowerCase() === formData.email.toLowerCase()
+          (m) => m.email.toLowerCase() === normalizedEmail
         )
       ) {
         toast({
@@ -287,99 +371,88 @@ export default function TeamPage() {
         return;
       }
 
-      // =====================================================
-      // FIND REGISTERED USER
-      // =====================================================
+      const { data: existingInvite, error: inviteCheckError } = await supabase
+        .from("invitations")
+        .select("id")
+        .eq("company_id", companyId)
+        .eq("email", normalizedEmail)
+        .eq("status", "pending")
+        .maybeSingle();
+
+      if (inviteCheckError) throw inviteCheckError;
+      if (existingInvite) {
+        toast({
+          title: "Already Invited",
+          description: "Invitation untuk email ini masih pending.",
+          variant: "destructive",
+        });
+        return;
+      }
 
       const { data: existingUser, error: userError } = await supabase
         .from("user_profiles")
         .select("*")
-        .eq("email", formData.email.toLowerCase())
+        .eq("email", normalizedEmail)
         .maybeSingle();
 
       if (userError) {
         throw userError;
       }
 
-      // =====================================================
-      // USER BELUM REGISTER
-      // =====================================================
+      const role = toDbRole(formData.role);
 
-      if (!existingUser) {
-        toast({
-          title: "User Not Found",
-          description:
-            "User harus membuat akun terlebih dahulu sebelum diundang.",
-          variant: "destructive",
-        });
+      if (existingUser) {
+        const { data: existingMember, error: memberCheckError } = await supabase
+          .from("company_members")
+          .select("id, status")
+          .eq("company_id", companyId)
+          .eq("user_id", existingUser.id)
+          .maybeSingle();
 
-        return;
-      }
+        if (memberCheckError) throw memberCheckError;
 
-      // =====================================================
-      // CHECK EXISTING MEMBER
-      // =====================================================
+        if (existingMember) {
+          const { error: reactivateError } = await supabase
+            .from("company_members")
+            .update({ role, status: "active" })
+            .eq("id", existingMember.id);
+          if (reactivateError) throw reactivateError;
+        } else {
+          const { error: memberError } = await supabase
+            .from("company_members")
+            .insert([
+              {
+                company_id: companyId,
+                user_id: existingUser.id,
+                role,
+                status: "active",
+              },
+            ]);
 
-      const { data: existingMember } = await supabase
-        .from("company_members")
-        .select("id")
-        .eq("company_id", companyId)
-        .eq("user_id", existingUser.id)
-        .maybeSingle();
+          if (memberError) throw memberError;
+        }
 
-      if (existingMember) {
-        toast({
-          title: "Already Joined",
-          description: "User sudah menjadi member company ini.",
-          variant: "destructive",
-        });
-
-        return;
-      }
-
-      // =====================================================
-      // ROLE MAPPING
-      // =====================================================
-
-      let role = "member";
-
-      if (formData.role === "Admin") {
-        role = "admin";
-      }
-
-      // =====================================================
-      // INSERT COMPANY MEMBER
-      // =====================================================
-
-      const { error: memberError } = await supabase
-        .from("company_members")
-        .insert([
-          {
+        const { error: profileError } = await supabase
+          .from("user_profiles")
+          .update({
             company_id: companyId,
-            user_id: existingUser.id,
             role,
-            status: "active",
-          },
-        ]);
+          })
+          .eq("id", existingUser.id);
 
-      if (memberError) {
-        throw memberError;
-      }
+        if (profileError) throw profileError;
+      } else {
+        const { error: invitationError } = await supabase
+          .from("invitations")
+          .insert([
+            {
+              company_id: companyId,
+              email: normalizedEmail,
+              status: "pending",
+            },
+          ]);
 
-      // =====================================================
-      // UPDATE USER PROFILE
-      // =====================================================
-
-      const { error: profileError } = await supabase
-        .from("user_profiles")
-        .update({
-          company_id: companyId,
-          role,
-        })
-        .eq("id", existingUser.id);
-
-      if (profileError) {
-        throw profileError;
+        if (invitationError) throw invitationError;
       }
 
       // =====================================================
@@ -388,7 +461,9 @@ export default function TeamPage() {
 
       toast({
         title: "Member Added",
-        description: `${formData.email} berhasil ditambahkan ke workspace.`,
+        description: existingUser
+          ? `${normalizedEmail} berhasil ditambahkan ke workspace.`
+          : `Invitation dikirim untuk ${normalizedEmail}.`,
       });
 
       // INSERT NOTIFICATION
@@ -400,8 +475,8 @@ export default function TeamPage() {
             type: "invite",
             user_name: "You",
             action: "invited",
-            target: formData.email,
-            message: `${formData.email} joined the workspace`,
+            target: normalizedEmail,
+            message: existingUser ? `${normalizedEmail} joined the workspace` : `${normalizedEmail} was invited to the workspace`,
             time: "Just now",
             unread: true,
             icon_name: "Users",
@@ -414,12 +489,12 @@ export default function TeamPage() {
       setIsModalOpen(false);
 
       await fetchMembers();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Invite member error:", error);
 
       toast({
         title: "Error",
-        description: error?.message || "Failed to add member.",
+        description: error instanceof Error ? error.message : "Failed to add member.",
         variant: "destructive",
       });
     } finally {

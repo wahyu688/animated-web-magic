@@ -72,6 +72,14 @@ export default function KanbanPage() {
   const { toast } = useToast();
   const { companyId, isCompanyLoading, companyError } = useCompany();
 
+  useEffect(() => {
+    if (!isCompanyLoading && !companyId) {
+      setIsLoading(false);
+      setColumnsData(baseColumns.map(col => ({ ...col, tasks: [] })));
+      setSelectedTask(null);
+    }
+  }, [companyId, isCompanyLoading]);
+
   const fetchTasks = useCallback(async (showLoading = false) => {
     if (!companyId) return;
     const requestId = ++fetchRequestIdRef.current;
@@ -138,7 +146,7 @@ export default function KanbanPage() {
     if (!companyId) return;
     fetchTasks(true);
 
-    const channel = supabase.channel('kanban-tasks-realtime')
+    const channel = supabase.channel(`kanban-tasks-realtime:${companyId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'kanban_tasks', filter: `company_id=eq.${companyId}` }, (payload) => {
         console.info("[kanban realtime] change received:", payload.eventType, payload);
         // Jika ada perubahan dari tab/device lain, fetch ulang agar urutan tetap konsisten.
@@ -158,7 +166,6 @@ export default function KanbanPage() {
 
     return () => {
       isMountedRef.current = false;
-      channel.unsubscribe();
       supabase.removeChannel(channel);
     };
   }, [companyId, fetchTasks]);

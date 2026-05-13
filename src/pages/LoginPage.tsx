@@ -3,6 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Lock, ArrowRight, Loader2, Github, Chrome, CheckCircle2, AlertTriangle, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { clearCompanyCache, ensureUserProfile } from "../lib/company";
 
 // --- KOMPONEN POP-UP NOTIFIKASI ---
 function FloatingAlert({ alert, onClose }: { alert: { type: 'success' | 'error', message: string } | null, onClose: () => void }) {
@@ -74,23 +75,25 @@ export default function LoginPage() {
     }
 
     setIsLoading(true);
+    const normalizedEmail = email.trim().toLowerCase();
 
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
         if (error) throw error;
         
+        clearCompanyCache();
         showAlert('success', "Welcome back! Redirecting...");
         setTimeout(() => navigate("/dashboard"), 1000); 
         
       } else {
         const { data, error } = await supabase.auth.signUp({ 
-          email, 
+          email: normalizedEmail, 
           password,
           options: {
             data: {
-              first_name: firstName,
-              last_name: lastName
+              first_name: firstName.trim(),
+              last_name: lastName.trim()
             }
           }
         });
@@ -98,8 +101,16 @@ export default function LoginPage() {
 
         if (data.user && data.user.identities && data.user.identities.length === 0) {
            showAlert('error', "This email is already registered.");
-        } else {
-           setIsSuccess(true);
+        } else if (data.user) {
+           await ensureUserProfile(data.user);
+           clearCompanyCache();
+
+           if (data.session) {
+             showAlert('success', "Account created. Redirecting...");
+             setTimeout(() => navigate("/dashboard"), 800);
+           } else {
+             setIsSuccess(true);
+           }
         }
       }
     } catch (error) {
