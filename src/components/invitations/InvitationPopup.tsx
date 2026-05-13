@@ -9,7 +9,19 @@ export default function InvitationPopup() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+
     checkInvitation();
+
+    const {
+      data: { subscription }
+    } = supabase.auth.onAuthStateChange(() => {
+      checkInvitation();
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+
   }, []);
 
   const checkInvitation = async () => {
@@ -26,7 +38,7 @@ export default function InvitationPopup() {
       const { data, error } = await supabase
         .from("invitations")
         .select("*")
-        .eq("email", user.email)
+        .eq("email", user.email.toLowerCase().trim())
         .eq("status", "pending")
         .maybeSingle();
 
