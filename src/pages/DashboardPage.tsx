@@ -213,17 +213,6 @@ export default function DashboardPage() {
 
   return (
     <div className="p-6 lg:p-10 space-y-8">
-      {companyError && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          Gagal memuat company context. Silakan refresh atau login ulang.
-        </div>
-      )}
-
-      {!companyId && !companyError && (
-        <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
-          Company context belum tersedia. Hubungi admin workspace Anda.
-        </div>
-      )}
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation,Navigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../../lib/supabase";
 import {
@@ -44,7 +44,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [profile, setProfile] = useState({ firstName: "Loading...", lastName: "", email: "..." });
   const [unreadCount, setUnreadCount] = useState(0);
   const isMountedRef = useRef(false);
-  const { companyId } = useCompany();
+  const { companyId, isCompanyLoading, companyError} = useCompany();
 
   // --- EFFECT UNTUK PROFIL ---
   useEffect(() => {
@@ -66,6 +66,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     };
     fetchProfile();
 
+    
     return () => {
       isMountedRef.current = false;
     };
@@ -138,6 +139,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return `${first}${last}`;
   };
 
+  if (isCompanyLoading) {
+    return null;
+  }
+
+  if (!companyId && !companyError) {
+    return <Navigate to="/pricing" replace />;
+  }
+  
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <AnimatePresence>
