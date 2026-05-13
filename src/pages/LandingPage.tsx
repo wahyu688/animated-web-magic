@@ -32,7 +32,7 @@ export default function LandingPage() {
           <div className="hidden md:flex items-center gap-10">
             <a className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors" href="#features">Features</a>
             <Link to="/pricing" className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors">Pricing</Link>
-            <a className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors" href="#about">About</a>
+            <a className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors" href="/about">About</a>
           </div>
           <div className="flex items-center gap-4">
             <Link to="/login" className="px-5 py-2.5 text-sm font-semibold hover:bg-[#0f2ab3]/5 rounded-lg transition-all" style={{ color: brandColor }}>
