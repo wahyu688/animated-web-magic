@@ -3,11 +3,36 @@ import { Link } from "react-router-dom";
 import { GraduationCap, BookOpen, Database, Users, Code2, Heart, ArrowLeft } from "lucide-react";
 
 const teamMembers = [
-  { name: "Wahyu", role: "Database / Fullstack Developer", NIM: "2802497800" },
-  { name: "Anggota 2", role: "Frontend Developer", NIM: "28xxxxxxxx" },
-  { name: "Anggota 3", role: "UI/UX Designer", NIM: "28xxxxxxxx" },
-  { name: "Anggota 4", role: "System Analyst", NIM: "28xxxxxxxx" },
-  { name: "Anggota 5", role: "Quality Assurance", NIM: "28xxxxxxxx" },
+  {
+    name: "Wahyu A. Barmawi",
+    role: "Database / Fullstack Developer",
+    NIM: "2802497800",
+    image: "/team/wahyu.jpeg"
+  },
+  {
+    name: "Leandra Belva Varissa Perwira Negara",
+    role: "Frontend Developer",
+    NIM: "28xxxxxxxx",
+    image: "/team/leandra.jpeg"
+  },
+  {
+    name: "Andhani Tasya Assalwa Putri",
+    role: "UI/UX Designer",
+    NIM: "2802470793",
+    image: "/team/andhani.jpeg"
+  },
+  {
+    name: "Victor Jonathan Harianto",
+    role: "System Analyst",
+    NIM: "2802447310",
+    image: "/team/victor.jpeg"
+  },
+  {
+    name: "Jeff Adriel Panjaitan",
+    role: "Quality Assurance",
+    NIM: "28xxxxxxxx",
+    image: "/team/jeff.jpe  g"
+  },
 ];
 
 export default function AboutPage() {
@@ -22,7 +47,7 @@ export default function AboutPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#fcfcfd] text-slate-900">
+    <div className="min-h-screen bg-[#fcfcfd] text-slate-900 pt-32">
       <div className="max-w-5xl mx-auto space-y-10">
         
         {/* --- NAVBAR --- */}
@@ -152,8 +177,12 @@ export default function AboutPage() {
                 whileHover={{ y: -5, scale: 1.02 }}
                 className="p-6 rounded-2xl bg-muted/30 border border-border hover:border-primary/40 hover:shadow-md transition-all flex flex-col items-center text-center gap-4"
               >
-                <div className="w-20 h-20 rounded-full gradient-primary flex items-center justify-center text-white font-black text-3xl shrink-0 shadow-lg ring-4 ring-background">
-                  {member.name.charAt(0)}
+                <div className="w-24 h-24 rounded-full overflow-hidden shadow-lg ring-4 ring-background border border-border shrink-0">
+                  <img
+                    src={member.image}
+                    alt={member.name}
+                    className="w-full h-full object-cover"
+                  />
                 </div>
                 <div>
                   <h3 className="font-bold text-lg text-foreground mb-1">{member.name}</h3>
