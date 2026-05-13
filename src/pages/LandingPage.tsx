@@ -36,7 +36,7 @@ export default function LandingPage() {
             <div className="hidden md:flex items-center gap-10">
               <Link
                 to="/"
-                className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
+                className="text-sm font-bold text-[#376CDD]"
               >
                 Home
               </Link>
@@ -50,7 +50,7 @@ export default function LandingPage() {
 
               <Link
                 to="/about"
-                className="text-sm font-bold text-[#376CDD]"
+                className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
               >
                 About
               </Link>
