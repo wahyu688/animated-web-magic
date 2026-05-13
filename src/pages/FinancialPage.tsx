@@ -132,6 +132,7 @@ export default function FinancialPage() {
     e.preventDefault();
     if (!companyId) {
       toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+      window.dispatchEvent(new CustomEvent('nexusflow:chart-updated'));
       return;
     }
 

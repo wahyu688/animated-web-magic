@@ -183,6 +183,12 @@ export default function DashboardPage() {
 
   // 2. Fetch Data & Real-Time Listener
   useEffect(() => {
+    const handler = () => fetchDashboardInfo();
+    window.addEventListener('nexusflow:chart-updated', handler);
+    return () => window.removeEventListener('nexusflow:chart-updated', handler);
+  }, [fetchDashboardInfo]);
+
+  useEffect(() => {
     if (!user || !companyId) return;
     isMountedRef.current = true;
     fetchDashboardInfo(true);

@@ -150,6 +150,12 @@ export default function AnalyticsPage() {
   });
 
   useEffect(() => {
+    const handler = () => fetchAnalyticsData();
+    window.addEventListener('nexusflow:chart-updated', handler);
+    return () => window.removeEventListener('nexusflow:chart-updated', handler);
+  }, [fetchAnalyticsData]);
+
+  useEffect(() => {
     if (!user || !companyId) return;
     isMountedRef.current = true;
     fetchAnalyticsData(true);
