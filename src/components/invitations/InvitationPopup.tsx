@@ -22,6 +22,7 @@ export default function InvitationPopup() {
       subscription.unsubscribe();
     };
 
+    
   }, []);
 
   const checkInvitation = async () => {
@@ -42,6 +43,10 @@ export default function InvitationPopup() {
         .eq("status", "pending")
         .maybeSingle();
 
+        console.log("INVITE DATA:", data);
+        console.log("INVITE ERROR:", error);
+        console.log("USER EMAIL:", user?.email);
+        
       if (!error && data) {
         setInvite(data);
       }
