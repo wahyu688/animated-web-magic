@@ -25,24 +25,6 @@ export function clearCompanyCache() {
   cachedUserId = null;
 }
 
-export async function ensureUserProfile(user: User) {
-  const names = getProfileName(user);
-
-  const { error } = await supabase
-    .from("user_profiles")
-    .upsert(
-      {
-        id: user.id,
-        email: user.email?.toLowerCase() ?? null,
-        first_name: names.first_name,
-        last_name: names.last_name,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" }
-    );
-
-  if (error) throw error;
-}
 
 async function acceptPendingInvitation(user: User): Promise<CompanyContext | null> {
   const email = user.email?.toLowerCase();
@@ -114,7 +96,6 @@ async function loadCurrentCompany(): Promise<CompanyContext | null> {
   if (!session?.user) return null;
 
   const user = session.user;
-  await ensureUserProfile(user);
 
   const { data: membership, error: membershipError } = await supabase
     .from("company_members")

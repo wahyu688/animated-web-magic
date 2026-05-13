@@ -3,7 +3,7 @@ import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Lock, ArrowRight, Loader2, Github, Chrome, CheckCircle2, AlertTriangle, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
-import { clearCompanyCache, ensureUserProfile } from "../lib/company";
+import { clearCompanyCache } from "../lib/company";
 
 // --- KOMPONEN POP-UP NOTIFIKASI ---
 function FloatingAlert({ alert, onClose }: { alert: { type: 'success' | 'error', message: string } | null, onClose: () => void }) {
@@ -102,7 +102,6 @@ export default function LoginPage() {
         if (data.user && data.user.identities && data.user.identities.length === 0) {
            showAlert('error', "This email is already registered.");
         } else if (data.user) {
-           await ensureUserProfile(data.user);
            clearCompanyCache();
 
            if (data.session) {
