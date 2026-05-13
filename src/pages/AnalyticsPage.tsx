@@ -99,7 +99,9 @@ export default function AnalyticsPage() {
       if (showLoading) setIsLoadingDB(false);
       return;
     }
-    const requestId = ++fetchRequestIdRef.current;
+    const requestId = showLoading
+      ? ++fetchRequestIdRef.current
+      : fetchRequestIdRef.current;
 
     try {
       if (showLoading) setIsLoadingDB(true);
@@ -114,7 +116,7 @@ export default function AnalyticsPage() {
         (kpiRes.status === "rejected" && kpiRes.reason) ||
         (chartRes.status === "rejected" && chartRes.reason);
       if (firstError) throw firstError;
-      if (!isMountedRef.current || requestId !== fetchRequestIdRef.current) return;
+      if (!isMountedRef.current) return;
 
       const kpi = kpiRes.status === "fulfilled" ? kpiRes.value.data : null;
       if (kpi) {

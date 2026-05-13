@@ -119,7 +119,9 @@ export default function DashboardPage() {
       navigate("/pricing");
       return;
     }
-    const requestId = ++fetchRequestIdRef.current;
+    const requestId = showLoading
+      ? ++fetchRequestIdRef.current
+      : fetchRequestIdRef.current;
 
     try {
       if (showLoading) setIsLoadingDB(true);
@@ -140,7 +142,7 @@ export default function DashboardPage() {
         (kpiRes.status === "rejected" && kpiRes.reason) ||
         (chartRes.status === "rejected" && chartRes.reason);
       if (firstError) throw firstError;
-      if (!isMountedRef.current || requestId !== fetchRequestIdRef.current) return;
+      if (!isMountedRef.current) return;
 
       setTopPages(pagesRes.status === "fulfilled" ? pagesRes.value.data ?? [] : []);
       setTrafficSources(trafficRes.status === "fulfilled" ? trafficRes.value.data ?? [] : []);
