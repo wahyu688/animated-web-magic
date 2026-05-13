@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, Variants } from "framer-motion";
 import { TrendingUp, TrendingDown, Users, DollarSign, Clock, BarChart3, Download, Minus, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useCompany } from "@/hooks/use-company";
 import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
+import { useAuth } from "@/contexts/AuthContext";
 
 
 const cardVariants = {
@@ -70,7 +70,6 @@ const generateSmoothPath = (data: ChartDatum[], key: "current_val" | "previous_v
 
 export default function AnalyticsPage() {
   const [activeRange, setActiveRange] = useState("1Y");
-  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
   
   const [kpiData, setKpiData] = useState({ 
@@ -85,8 +84,8 @@ export default function AnalyticsPage() {
   const fetchRequestIdRef = useRef(0);
 
   const { toast } = useToast();
-  const navigate = useNavigate();
   const { companyId, isCompanyLoading, companyError } = useCompany();
+  const { user, isAuthLoading } = useAuth();
 
   useEffect(() => {
     if (!isCompanyLoading && !companyId) {
@@ -94,23 +93,6 @@ export default function AnalyticsPage() {
       setChartRawData([]);
     }
   }, [companyId, isCompanyLoading]);
-
-  useEffect(() => {
-    const checkUser = async () => {
-      try {
-        const { data: { session } } = await withSupabaseTimeout(
-          supabase.auth.getSession(),
-          "analytics auth session"
-        );
-        if (!session) navigate("/login");
-        else setUserEmail(session.user.email || "User");
-      } catch (error) {
-        console.warn("Analytics auth session check failed:", error);
-        setUserEmail("User");
-      }
-    };
-    checkUser();
-  }, [navigate]);
 
   const fetchAnalyticsData = useCallback(async (showLoading = false) => {
     if (!companyId) {
@@ -166,7 +148,7 @@ export default function AnalyticsPage() {
   });
 
   useEffect(() => {
-    if (!userEmail || !companyId) return;
+    if (!user || !companyId) return;
     isMountedRef.current = true;
     fetchAnalyticsData(true);
 
@@ -185,7 +167,7 @@ export default function AnalyticsPage() {
       isMountedRef.current = false;
       safeRemoveChannel(channel);
     };
-  }, [companyId, userEmail, fetchAnalyticsData]);
+  }, [companyId, user, fetchAnalyticsData]);
 
   // --- MENGHITUNG KORDINAT SVG DINAMIS ---
   const filteredChartData = useMemo(() => {
@@ -229,7 +211,7 @@ export default function AnalyticsPage() {
     { label: "Churn Rate", value: kpiData.churn, change: kpiData.churn_change, trend: kpiData.churn_trend, icon: BarChart3, color: "text-muted-foreground" },
   ];
 
-  if (!userEmail || (isCompanyLoading && !companyId)) {
+  if (isAuthLoading || !user || (isCompanyLoading && !companyId)) {
     return <div className="flex h-full items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   }
 

@@ -4,6 +4,7 @@ import { X, CheckCircle2, Circle, Plus, Save, Loader2, MessageSquare } from "luc
 import { supabase } from "../../lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { logActivity } from "../../lib/activityLogger";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface Subtask {
   id: string;
@@ -75,6 +76,7 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
   const [isSaving, setIsSaving] = useState(false);
 
   const { toast } = useToast();
+  const { user } = useAuth();
 
   // Sinkronisasi data saat task diklik/berubah
   useEffect(() => {
@@ -197,8 +199,7 @@ export default function TaskSlideover({ open, onClose, task, onTaskUpdated, comp
     e.preventDefault();
     if (!newComment.trim()) return;
 
-    const { data: { session } } = await supabase.auth.getSession();
-    const userName = session?.user?.email?.split('@')[0] || "User";
+    const userName = user?.email?.split('@')[0] || "User";
 
     const newAct = {
       id: Date.now().toString(),

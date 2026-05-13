@@ -2,69 +2,58 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
 import { clearCompanyCache } from "@/lib/company";
+import { useAuth } from "@/contexts/AuthContext";
+import { withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 
 export default function InvitationPopup() {
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [invite, setInvite] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
 
-    checkInvitation();
+    const checkInvitation = async () => {
+      try {
+        if (!user?.email) {
+          if (isMounted) {
+            setInvite(null);
+            setLoading(false);
+          }
+          return;
+        }
 
-    const {
-      data: { subscription }
-    } = supabase.auth.onAuthStateChange(() => {
-      checkInvitation();
-    });
+        const { data, error } = await withSupabaseTimeout(
+          supabase
+            .from("invitations")
+            .select("*")
+            .eq("email", user.email.toLowerCase().trim())
+            .eq("status", "pending")
+            .maybeSingle(),
+          "invitation lookup"
+        );
 
-    return () => {
-      subscription.unsubscribe();
+        if (!isMounted) return;
+        setInvite(!error && data ? data : null);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
     };
 
-    
-  }, []);
+    setLoading(true);
+    void checkInvitation();
 
-  const checkInvitation = async () => {
-    try {
-      const {
-        data: { user }
-      } = await supabase.auth.getUser();
-
-      if (!user?.email) {
-        setLoading(false);
-        return;
-      }
-
-      const { data, error } = await supabase
-        .from("invitations")
-        .select("*")
-        .eq("email", user.email.toLowerCase().trim())
-        .eq("status", "pending")
-        .maybeSingle();
-
-        console.log("INVITE DATA:", data);
-        console.log("INVITE ERROR:", error);
-        console.log("USER EMAIL:", user?.email);
-        
-      if (!error && data) {
-        setInvite(data);
-      }
-
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.email]);
 
   const handleAccept = async () => {
     try {
-      const {
-        data: { user }
-      } = await supabase.auth.getUser();
-
       if (!user || !invite) return;
 
       await supabase

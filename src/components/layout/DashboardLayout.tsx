@@ -13,6 +13,7 @@ import { clearCompanyCache } from "@/lib/company";
 import DashboardSkeleton from "../DashboardSkeleton";
 import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
+import { useAuth } from "@/contexts/AuthContext";
 
 const navItems = [
   { icon: Home, label: "Dashboard", path: "/dashboard" },
@@ -48,17 +49,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [unreadCount, setUnreadCount] = useState(0);
   const isMountedRef = useRef(false);
   const { companyId, isCompanyLoading, isCompanyRefreshing, companyError} = useCompany();
+  const { user, isAuthRefreshing } = useAuth();
 
   // --- EFFECT UNTUK PROFIL ---
   useEffect(() => {
     isMountedRef.current = true;
     const fetchProfile = async () => {
       try {
-        const { data: { user }, error } = await withSupabaseTimeout(
-          supabase.auth.getUser(),
-          "layout auth user"
-        );
-        if (error) console.error("Profile auth fetch error:", error);
         if (user && isMountedRef.current) {
           // Ambil data dari tabel user_profiles
           const { data, error: profileError } = await withSupabaseTimeout(
@@ -83,7 +80,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return () => {
       isMountedRef.current = false;
     };
-  }, []);
+  }, [user]);
 
   // --- EFFECT UNTUK REAL-TIME NOTIFIKASI ---
   const fetchUnreadCount = useCallback(async () => {
@@ -170,7 +167,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {(isCompanyRefreshing || isResumeRecovering) && (
+      {(isCompanyRefreshing || isAuthRefreshing || isResumeRecovering) && (
         <div className="fixed left-0 right-0 top-0 z-[9999] h-1 bg-primary/15">
           <div className="h-full w-1/3 animate-pulse bg-primary" />
         </div>
@@ -296,7 +293,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             
             <div className="h-8 w-px bg-border" />
 
-            {(isCompanyRefreshing || isResumeRecovering) && (
+            {(isCompanyRefreshing || isAuthRefreshing || isResumeRecovering) && (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             )}
             

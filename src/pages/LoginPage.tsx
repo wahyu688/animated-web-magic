@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Mail, Lock, ArrowRight, Loader2, Github, Chrome, CheckCircle2, AlertTriangle, X } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { clearCompanyCache } from "../lib/company";
+import { useAuth } from "@/contexts/AuthContext";
 
 // --- KOMPONEN POP-UP NOTIFIKASI ---
 function FloatingAlert({ alert, onClose }: { alert: { type: 'success' | 'error', message: string } | null, onClose: () => void }) {
@@ -51,6 +52,7 @@ export default function LoginPage() {
   
   const [alert, setAlert] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const navigate = useNavigate();
+  const { session, isAuthLoading } = useAuth();
 
   const showAlert = (type: 'success' | 'error', message: string) => {
     setAlert({ type, message });
@@ -58,12 +60,8 @@ export default function LoginPage() {
   };
 
   useEffect(() => {
-    const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) navigate("/dashboard");
-    };
-    checkUser();
-  }, [navigate]);
+    if (!isAuthLoading && session) navigate("/dashboard");
+  }, [isAuthLoading, navigate, session]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();

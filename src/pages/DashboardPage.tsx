@@ -7,6 +7,7 @@ import { supabase } from "../lib/supabase";
 import { useCompany } from "@/hooks/use-company";
 import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
+import { useAuth } from "@/contexts/AuthContext";
 
 const cardVariants = {
   hidden: { opacity: 0, y: 20 },
@@ -82,7 +83,6 @@ const generateSmoothPath = (data: ChartDatum[], key: "current_val" | "previous_v
 
 export default function DashboardPage() {
   const [activeRange, setActiveRange] = useState("1Y");
-  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [hoveredPoint, setHoveredPoint] = useState<number | null>(null);
   
   // State Data Dinamis dari Supabase
@@ -102,6 +102,7 @@ export default function DashboardPage() {
   const { toast } = useToast();
   const navigate = useNavigate();
   const { companyId, isCompanyLoading, companyError } = useCompany();
+  const { user, isAuthLoading } = useAuth();
 
   useEffect(() => {
     if (!isCompanyLoading && !companyId) {
@@ -111,24 +112,6 @@ export default function DashboardPage() {
       setChartRawData([]);
     }
   }, [companyId, isCompanyLoading]);
-
-  // 1. Cek User Session
-  useEffect(() => {
-    const checkUser = async () => {
-      try {
-        const { data: { session } } = await withSupabaseTimeout(
-          supabase.auth.getSession(),
-          "dashboard auth session"
-        );
-        if (!session) navigate("/login");
-        else setUserEmail(session.user.email || "User");
-      } catch (error) {
-        console.warn("Dashboard auth session check failed:", error);
-        setUserEmail("User");
-      }
-    };
-    checkUser();
-  }, [navigate]);
 
   const fetchDashboardInfo = useCallback(async (showLoading = false) => {
     if (!companyId) {
@@ -194,7 +177,7 @@ export default function DashboardPage() {
 
   // 2. Fetch Data & Real-Time Listener
   useEffect(() => {
-    if (!userEmail || !companyId) return;
+    if (!user || !companyId) return;
     isMountedRef.current = true;
     fetchDashboardInfo(true);
 
@@ -215,7 +198,7 @@ export default function DashboardPage() {
       isMountedRef.current = false;
       safeRemoveChannel(channel);
     };
-  }, [companyId, userEmail, fetchDashboardInfo]);
+  }, [companyId, user, fetchDashboardInfo]);
 
   // --- MENGHITUNG KORDINAT SVG ---
   const maxChartValue = Math.max(
@@ -237,7 +220,7 @@ export default function DashboardPage() {
     { label: "Churn Rate", value: kpiData.churn, change: kpiData.churn_change, trend: kpiData.churn_trend, icon: BarChart3, color: "text-muted-foreground" },
   ];
 
-  if (!userEmail || (isCompanyLoading && !companyId)) {
+  if (isAuthLoading || !user || (isCompanyLoading && !companyId)) {
     return <div className="flex h-full items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   }
 
@@ -248,7 +231,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-3xl font-bold text-foreground tracking-tight">Dashboard</h1>
           <p className="text-muted-foreground mt-1">
-            Welcome back, <span className="text-primary font-medium">{userEmail}</span>. Monitor your key metrics.
+            Welcome back, <span className="text-primary font-medium">{user.email || "User"}</span>. Monitor your key metrics.
           </p>
         </div>
         <div className="flex items-center gap-3">

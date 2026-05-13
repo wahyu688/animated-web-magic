@@ -101,17 +101,7 @@ async function acceptPendingInvitation(user: User): Promise<CompanyContext | nul
   };
 }
 
-async function loadCurrentCompany(): Promise<CompanyContext | null> {
-  const {
-    data: { session },
-    error: sessionError,
-  } = await withSupabaseTimeout(supabase.auth.getSession(), "company auth session");
-
-  if (sessionError) throw sessionError;
-  if (!session?.user) return null;
-
-  const user = session.user;
-
+async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
   const { data: membership, error: membershipError } = await withSupabaseTimeout(
     supabase
       .from("company_members")
@@ -194,16 +184,13 @@ async function loadCurrentCompany(): Promise<CompanyContext | null> {
   };
 }
 
-export async function getCurrentCompany(): Promise<CompanyContext | null> {
-  const {
-    data: { session },
-  } = await withSupabaseTimeout(supabase.auth.getSession(), "company cached auth session");
-
-  const sessionUserId = session?.user?.id ?? null;
+export async function getCurrentCompany(user?: User | null): Promise<CompanyContext | null> {
+  const authUser = user ?? (await withSupabaseTimeout(supabase.auth.getSession(), "company cached auth session")).data.session?.user ?? null;
+  const sessionUserId = authUser?.id ?? null;
   if (cachedCompany && cachedUserId === sessionUserId) return cachedCompany;
   if (companyPromise) return companyPromise;
 
-  companyPromise = loadCurrentCompany()
+  companyPromise = authUser ? loadCurrentCompany(authUser) : Promise.resolve(null)
     .then((company) => {
       cachedCompany = company;
       cachedUserId = sessionUserId;

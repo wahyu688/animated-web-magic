@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { reconnectRealtimeSafely, refreshAuthSessionSafely } from "@/lib/supabaseLifecycle";
+import { reconnectRealtimeSafely } from "@/lib/supabaseLifecycle";
 
 let globalRecoveryPromise: Promise<void> | null = null;
 let lastGlobalRecoveryAt = 0;
@@ -33,7 +33,6 @@ export function useSupabaseResumeRecovery({
 
       lastGlobalRecoveryAt = now;
       globalRecoveryPromise = (async () => {
-        await refreshAuthSessionSafely();
         reconnectRealtimeSafely();
       })().finally(() => {
         globalRecoveryPromise = null;

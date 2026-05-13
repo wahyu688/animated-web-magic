@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 import { logActivity } from "../lib/activityLogger";
 import type { Session } from "@supabase/supabase-js";
+import { useAuth } from "@/contexts/AuthContext";
 
 const tabs = [
   { icon: User, label: "General" },
@@ -365,25 +366,7 @@ function IntegrationsTab() {
 /* ── MAIN SETTINGS PAGE ── */
 export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("General");
-  const [session, setSession] = useState<Session | null>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) console.error("Settings session fetch error:", error);
-      if (isMounted) setSession(session);
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (isMounted) setSession(session);
-    });
-
-    return () => {
-      isMounted = false;
-      subscription.unsubscribe();
-    };
-  }, []);
+  const { session } = useAuth();
 
   const tabContent: Record<string, React.ReactNode> = {
     General: <GeneralTab session={session} />,

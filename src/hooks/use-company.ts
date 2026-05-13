@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clearCompanyCache, getCurrentCompany } from "@/lib/company";
-import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 
 export function useCompany() {
   const [companyId, setCompanyId] = useState<string | null>(null);
@@ -8,6 +8,7 @@ export function useCompany() {
   const [isCompanyLoading, setIsCompanyLoading] = useState(true);
   const [isCompanyRefreshing, setIsCompanyRefreshing] = useState(false);
   const [companyError, setCompanyError] = useState<Error | null>(null);
+  const { user, isAuthLoading } = useAuth();
 
   const requestIdRef = useRef(0);
   const mountedRef = useRef(false);
@@ -25,7 +26,7 @@ export function useCompany() {
       }
 
       setCompanyError(null);
-      const company = await getCurrentCompany();
+      const company = await getCurrentCompany(user);
 
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       const nextCompanyId = company?.companyId ?? null;
@@ -36,9 +37,11 @@ export function useCompany() {
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       console.error("Company context error:", error);
 
-      setCompanyId(null);
-      companyIdRef.current = null;
-      setUserId(null);
+      if (!hasLoadedRef.current || !companyIdRef.current) {
+        setCompanyId(null);
+        companyIdRef.current = null;
+        setUserId(null);
+      }
 
       setCompanyError(
         error instanceof Error
@@ -52,7 +55,7 @@ export function useCompany() {
         setIsCompanyRefreshing(false);
       }
     }
-  }, []);
+  }, [user]);
 
   const refreshCompany = useCallback(async () => {
     clearCompanyCache();
@@ -63,42 +66,31 @@ export function useCompany() {
     mountedRef.current = true;
 
     const initialize = async () => {
+      if (isAuthLoading) return;
+
+      if (!user) {
+        requestIdRef.current += 1;
+        clearCompanyCache();
+        companyIdRef.current = null;
+        setCompanyId(null);
+        setUserId(null);
+        setCompanyError(null);
+        setIsCompanyLoading(false);
+        setIsCompanyRefreshing(false);
+        hasLoadedRef.current = true;
+        return;
+      }
+
       await loadCompany(true);
     };
 
     initialize();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
-        if (!mountedRef.current) return;
-        clearCompanyCache();
-
-        if (!session) {
-          requestIdRef.current += 1;
-          setCompanyId(null);
-          companyIdRef.current = null;
-          setUserId(null);
-          setCompanyError(null);
-          setIsCompanyLoading(false);
-          setIsCompanyRefreshing(false);
-          return;
-        }
-
-        const shouldUseInitialLoading =
-          !hasLoadedRef.current && !companyIdRef.current && event !== "TOKEN_REFRESHED";
-
-        await loadCompany(shouldUseInitialLoading);
-      }
-    );
-
     return () => {
       mountedRef.current = false;
-      subscription.unsubscribe();
     };
 
-  }, [loadCompany]);
+  }, [isAuthLoading, loadCompany, user]);
 
   return {
     companyId,

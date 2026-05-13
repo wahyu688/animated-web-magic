@@ -4,6 +4,7 @@ import { Check } from "lucide-react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 
 
 const plans = [
@@ -46,14 +47,10 @@ export default function PricingPage() {
 
   
   const navigate = useNavigate();
+  const { session } = useAuth();
 
   const handleSubscribe = async (planName: string) => {
     try {
-
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
       if (!session?.user) {
         navigate("/login");
         return;
