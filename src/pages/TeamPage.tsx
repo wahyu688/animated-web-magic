@@ -86,7 +86,7 @@ export default function TeamPage() {
       if (showLoading) setIsLoading(true);
 
       // 1. Ambil Karyawan Aktif
-      const { data: activeProfiles, error: activeError } = await supabase.from("profiles").select('*').eq('company_id', companyId);
+      const { data: activeProfiles, error: activeError } = await supabase.from("user_profiles").select('*').eq('company_id', companyId);
       
       // 2. Ambil Undangan Pending
       const { data: pendingInvites, error: invitesError } = await supabase.from('invitations').select('*').eq('company_id', companyId).eq('status', 'pending');
@@ -206,7 +206,7 @@ export default function TeamPage() {
           if (error) throw error;
         } else {
           // Cabut akses karyawan dari perusahaan (Set company_id jadi null)
-          const { error } = await supabase.from("profiles").update({ company_id: null }).eq('company_id', companyId).eq('id', deleteTarget.id);
+          const { error } = await supabase.from("user_profiles").update({ company_id: null }).eq('company_id', companyId).eq('id', deleteTarget.id);
           if (error) throw error;
         }
         
