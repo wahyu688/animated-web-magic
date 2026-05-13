@@ -313,7 +313,7 @@ export default function CalendarPage() {
 
   return (
     <div className="flex flex-col lg:flex-row h-full overflow-hidden relative">
-      {(isCompanyLoading || (Boolean(companyId) && isLoading)) && (
+      {((isCompanyLoading && !companyId) || (Boolean(companyId) && isLoading)) && (
         <div className="absolute inset-0 z-50 bg-background/50 backdrop-blur-sm flex items-center justify-center">
           <Loader2 className="w-8 h-8 animate-spin text-primary" />
         </div>

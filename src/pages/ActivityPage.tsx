@@ -263,7 +263,7 @@ export default function ActivityPage() {
   return (
     <div className="p-6 lg:p-10 max-w-3xl mx-auto relative">
       
-      {(isCompanyLoading || (Boolean(companyId) && isLoading)) && (
+      {((isCompanyLoading && !companyId) || (Boolean(companyId) && isLoading)) && (
         <div className="absolute top-10 right-10 z-10 flex items-center justify-center">
           <Loader2 className="w-6 h-6 animate-spin text-primary" />
         </div>

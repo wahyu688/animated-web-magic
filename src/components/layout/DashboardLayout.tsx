@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { supabase } from "../../lib/supabase";
 import {
   BarChart3, Calendar, ChevronLeft, Home, Kanban,
-  Bell, Search, Settings, Users, Zap, CreditCard, Activity, Menu, BookOpen, DollarSign
+  Bell, Search, Settings, Users, Zap, CreditCard, Activity, Menu, BookOpen, DollarSign, Loader2
 } from "lucide-react";
 import { useCompany } from "@/hooks/use-company";
 import { LogOut } from "lucide-react";
@@ -47,7 +47,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [profile, setProfile] = useState({ firstName: "Loading...", lastName: "", email: "..." });
   const [unreadCount, setUnreadCount] = useState(0);
   const isMountedRef = useRef(false);
-  const { companyId, isCompanyLoading, companyError} = useCompany();
+  const { companyId, isCompanyLoading, isCompanyRefreshing, companyError} = useCompany();
 
   // --- EFFECT UNTUK PROFIL ---
   useEffect(() => {
@@ -111,7 +111,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     }
   }, [companyId]);
 
-  useSupabaseResumeRecovery({
+  const isResumeRecovering = useSupabaseResumeRecovery({
     enabled: Boolean(companyId),
     onRecover: fetchUnreadCount,
   });
@@ -160,7 +160,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return `${first}${last}`;
   };
 
-  if (isCompanyLoading) {
+  if (isCompanyLoading && !companyId) {
     return <DashboardSkeleton />;
   }
 
@@ -170,6 +170,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   
   return (
     <div className="flex h-screen overflow-hidden bg-background">
+      {(isCompanyRefreshing || isResumeRecovering) && (
+        <div className="fixed left-0 right-0 top-0 z-[9999] h-1 bg-primary/15">
+          <div className="h-full w-1/3 animate-pulse bg-primary" />
+        </div>
+      )}
       <AnimatePresence>
         {mobileOpen && (
           <motion.div
@@ -290,6 +295,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </Link>
             
             <div className="h-8 w-px bg-border" />
+
+            {(isCompanyRefreshing || isResumeRecovering) && (
+              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+            )}
             
             {/* --- PROFIL HEADER DINAMIS --- */}
             <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-sm cursor-pointer hover:opacity-90 transition-opacity">

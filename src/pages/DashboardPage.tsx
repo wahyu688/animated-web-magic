@@ -237,7 +237,7 @@ export default function DashboardPage() {
     { label: "Churn Rate", value: kpiData.churn, change: kpiData.churn_change, trend: kpiData.churn_trend, icon: BarChart3, color: "text-muted-foreground" },
   ];
 
-  if (!userEmail || isCompanyLoading) {
+  if (!userEmail || (isCompanyLoading && !companyId)) {
     return <div className="flex h-full items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
   }
 

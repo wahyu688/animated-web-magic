@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { reconnectRealtimeSafely, refreshAuthSessionSafely } from "@/lib/supabaseLifecycle";
 
 let globalRecoveryPromise: Promise<void> | null = null;
@@ -15,6 +15,7 @@ export function useSupabaseResumeRecovery({
   minIntervalMs = 2500,
   onRecover,
 }: UseSupabaseResumeRecoveryOptions = {}) {
+  const [isRecovering, setIsRecovering] = useState(false);
   const lastCallbackRef = useRef(0);
   const onRecoverRef = useRef(onRecover);
 
@@ -49,10 +50,13 @@ export function useSupabaseResumeRecovery({
       lastCallbackRef.current = now;
 
       try {
+        setIsRecovering(true);
         await recoverSupabaseCore();
         await onRecoverRef.current?.();
       } catch (error) {
         console.warn("[supabase lifecycle] tab resume recovery failed:", error);
+      } finally {
+        setIsRecovering(false);
       }
     };
 
@@ -68,4 +72,6 @@ export function useSupabaseResumeRecovery({
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [enabled, minIntervalMs]);
+
+  return isRecovering;
 }

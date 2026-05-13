@@ -284,7 +284,7 @@ export default function FinancialPage() {
     }
   };
 
-  if (isCompanyLoading || (Boolean(companyId) && isLoading)) return <div className="flex h-full items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  if ((isCompanyLoading && !companyId) || (Boolean(companyId) && isLoading)) return <div className="flex h-full items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
 
   return (
     <div className="p-6 lg:p-10 space-y-8 max-w-6xl mx-auto">

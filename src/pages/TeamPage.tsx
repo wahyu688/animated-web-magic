@@ -541,7 +541,7 @@ export default function TeamPage() {
 
       <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-2xl shadow-card border border-border overflow-hidden relative">
         
-        {(isCompanyLoading || (Boolean(companyId) && isLoading)) && (
+        {((isCompanyLoading && !companyId) || (Boolean(companyId) && isLoading)) && (
           <div className="absolute inset-0 z-10 bg-background/50 backdrop-blur-sm flex items-center justify-center">
             <Loader2 className="w-8 h-8 animate-spin text-primary" />
           </div>
