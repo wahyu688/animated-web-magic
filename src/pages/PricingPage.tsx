@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
 
+
 const plans = [
   {
     name: "Starter",
@@ -60,19 +61,20 @@ export default function PricingPage() {
 
       const user = session.user;
 
-      // cek apakah sudah punya company
-      const { data: existingProfile } = await supabase
+      // cek profile
+      const { data: profile } = await supabase
         .from("user_profiles")
         .select("company_id")
         .eq("id", user.id)
         .maybeSingle();
 
-      if (existingProfile?.company_id) {
+      // sudah punya company
+      if (profile?.company_id) {
         navigate("/dashboard");
         return;
       }
 
-      // create company
+      // create workspace/company
       const { data: company, error: companyError } = await supabase
         .from("companies")
         .insert({
@@ -83,7 +85,7 @@ export default function PricingPage() {
 
       if (companyError) throw companyError;
 
-      // insert company member
+      // insert member
       const { error: memberError } = await supabase
         .from("company_members")
         .insert({
