@@ -221,10 +221,10 @@ export default function FinancialPage() {
       const existingMonth = chartData.find(c => c.month === formData.month);
       if (existingMonth) {
         // Jika bulan ini sudah ada datanya, Update
-        const { error } = await supabase.from('chart_data').update({ current_val: totalRevenue, previous_val: totalExpenses }).eq('company_id', companyId).eq('id', existingMonth.id);
+        const { error } = await supabase.from('chart_data').update({ current_val: totalRevenue, previous_val: totalRevenue * 0.85 }).eq('company_id', companyId).eq('id', existingMonth.id);
         if (error) throw error;
           
-        const updatedChart = chartData.map(c => c.id === existingMonth.id ? { ...c, current_val: totalRevenue, previous_val: totalExpenses } : c);
+        const updatedChart = chartData.map(c => c.id === existingMonth.id ? { ...c, current_val: totalRevenue, previous_val: totalRevenue * 0.85 } : c);
         setChartData(updatedChart);
       } else {
         // Jika bulan ini belum ada (akun baru), Insert
@@ -233,7 +233,7 @@ export default function FinancialPage() {
           company_id: companyId,
           month: formData.month,
           current_val: totalRevenue,
-          previous_val: totalExpenses,
+          previous_val: totalRevenue * 0.85,
           sort_order: sortOrder
         }).select().maybeSingle();
 
