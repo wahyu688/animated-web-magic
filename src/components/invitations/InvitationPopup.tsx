@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../../lib/supabase";
+import { clearCompanyCache } from "@/lib/company";
 
 export default function InvitationPopup() {
   const navigate = useNavigate();
@@ -88,9 +89,9 @@ export default function InvitationPopup() {
         })
         .eq("id", invite.id);
 
+      clearCompanyCache();
+      setInvite(null);
       navigate("/dashboard");
-
-      window.location.reload();
 
     } catch (err) {
       console.error(err);

@@ -4,6 +4,8 @@ import { Save, Loader2, Calculator, Receipt, TrendingUp, CheckCircle2 } from "lu
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 import { useCompany } from "@/hooks/use-company";
+import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 const ALL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -90,6 +92,11 @@ export default function FinancialPage() {
     }
   }, [companyId, toast]);
 
+  useSupabaseResumeRecovery({
+    enabled: Boolean(companyId),
+    onRecover: () => fetchFinanceData(false),
+  });
+
   // 1. Ambil Data Awal & ID Perusahaan
   useEffect(() => {
     isMountedRef.current = true;
@@ -109,7 +116,7 @@ export default function FinancialPage() {
 
     return () => {
       isMountedRef.current = false;
-      supabase.removeChannel(channel);
+      safeRemoveChannel(channel);
     };
   }, [companyId, fetchFinanceData]);
 

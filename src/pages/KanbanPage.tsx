@@ -7,6 +7,8 @@ import { supabase } from "../lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { logActivity } from "../lib/activityLogger";
 import { useCompany } from "@/hooks/use-company";
+import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 // --- INTERFACES ---
 interface Task {
@@ -140,6 +142,11 @@ export default function KanbanPage() {
     }
   }, [companyId, toast]);
 
+  useSupabaseResumeRecovery({
+    enabled: Boolean(companyId),
+    onRecover: () => fetchTasks(false),
+  });
+
   // --- FETCH DATA & REAL-TIME LISTENER ---
   useEffect(() => {
     isMountedRef.current = true;
@@ -166,7 +173,7 @@ export default function KanbanPage() {
 
     return () => {
       isMountedRef.current = false;
-      supabase.removeChannel(channel);
+      safeRemoveChannel(channel);
     };
   }, [companyId, fetchTasks]);
 

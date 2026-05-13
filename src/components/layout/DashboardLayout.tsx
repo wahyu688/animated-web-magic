@@ -10,6 +10,9 @@ import { useCompany } from "@/hooks/use-company";
 import { LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { clearCompanyCache } from "@/lib/company";
+import DashboardSkeleton from "../DashboardSkeleton";
+import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 const navItems = [
   { icon: Home, label: "Dashboard", path: "/dashboard" },
@@ -95,6 +98,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     }
   }, [companyId]);
 
+  useSupabaseResumeRecovery({
+    enabled: Boolean(companyId),
+    onRecover: fetchUnreadCount,
+  });
+
   useEffect(() => {
     isMountedRef.current = true;
     if (!companyId) return;
@@ -128,7 +136,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
     return () => {
       isMountedRef.current = false;
-      supabase.removeChannel(channel);
+      safeRemoveChannel(channel);
     };
   }, [companyId, fetchUnreadCount]);
 
@@ -140,7 +148,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   };
 
   if (isCompanyLoading) {
-    return null;
+    return <DashboardSkeleton />;
   }
 
   if (!companyId && !companyError) {

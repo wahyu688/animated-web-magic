@@ -6,6 +6,8 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 import { logActivity } from "../lib/activityLogger";
 import { useCompany } from "@/hooks/use-company";
+import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 // --- TYPES & UTILS ---
 interface TeamMember {
@@ -190,6 +192,11 @@ export default function TeamPage() {
     }
   }, [companyId, toast]);
 
+  useSupabaseResumeRecovery({
+    enabled: Boolean(companyId),
+    onRecover: () => fetchMembers(false),
+  });
+
   useEffect(() => {
     isMountedRef.current = true;
     if (!companyId) return;
@@ -209,7 +216,7 @@ export default function TeamPage() {
 
     return () => {
       isMountedRef.current = false;
-      supabase.removeChannel(channel);
+      safeRemoveChannel(channel);
     };
   }, [companyId, fetchMembers]);
 

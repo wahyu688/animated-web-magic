@@ -4,6 +4,8 @@ import { AtSign, AlertTriangle, Upload, CheckCircle, GitBranch, ArrowDown, Check
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 import { useCompany } from "@/hooks/use-company";
+import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 // --- PETA IKON ---
 const IconMap: Record<string, LucideIcon> = {
@@ -122,6 +124,11 @@ export default function ActivityPage() {
     }
   }, [companyId, toast]);
 
+  useSupabaseResumeRecovery({
+    enabled: Boolean(companyId),
+    onRecover: () => fetchNotifications(false),
+  });
+
   // --- FETCH & REAL-TIME SUPABASE ---
   useEffect(() => {
     isMountedRef.current = true;
@@ -143,7 +150,7 @@ export default function ActivityPage() {
 
     return () => {
       isMountedRef.current = false;
-      supabase.removeChannel(channel);
+      safeRemoveChannel(channel);
     };
   }, [companyId, fetchNotifications]);
 

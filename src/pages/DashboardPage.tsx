@@ -5,6 +5,8 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useCompany } from "@/hooks/use-company";
+import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 const cardVariants = {
   hidden: { opacity: 0, y: 20 },
@@ -121,7 +123,10 @@ export default function DashboardPage() {
   }, [navigate]);
 
   const fetchDashboardInfo = useCallback(async (showLoading = false) => {
-    if (!companyId) navigate("/pricing");
+    if (!companyId) {
+      navigate("/pricing");
+      return;
+    }
     const requestId = ++fetchRequestIdRef.current;
 
     try {
@@ -162,7 +167,12 @@ export default function DashboardPage() {
     } finally {
       if (isMountedRef.current && requestId === fetchRequestIdRef.current) setIsLoadingDB(false);
     }
-  }, [companyId, toast]);
+  }, [companyId, navigate, toast]);
+
+  useSupabaseResumeRecovery({
+    enabled: Boolean(companyId),
+    onRecover: () => fetchDashboardInfo(false),
+  });
 
   // 2. Fetch Data & Real-Time Listener
   useEffect(() => {
@@ -185,7 +195,7 @@ export default function DashboardPage() {
 
     return () => {
       isMountedRef.current = false;
-      supabase.removeChannel(channel);
+      safeRemoveChannel(channel);
     };
   }, [companyId, userEmail, fetchDashboardInfo]);
 
@@ -209,7 +219,9 @@ export default function DashboardPage() {
     { label: "Churn Rate", value: kpiData.churn, change: kpiData.churn_change, trend: kpiData.churn_trend, icon: BarChart3, color: "text-muted-foreground" },
   ];
 
-  if (!userEmail || isCompanyLoading) return null;
+  if (!userEmail || isCompanyLoading) {
+    return <div className="flex h-full items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>;
+  }
 
   return (
     <div className="p-6 lg:p-10 space-y-8">

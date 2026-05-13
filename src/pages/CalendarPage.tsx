@@ -5,6 +5,8 @@ import { supabase } from "../lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { logActivity } from "../lib/activityLogger";
 import { useCompany } from "@/hooks/use-company";
+import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 // --- TYPES ---
 interface CalendarEvent {
@@ -144,6 +146,11 @@ export default function CalendarPage() {
     }
   }, [companyId, toast]);
 
+  useSupabaseResumeRecovery({
+    enabled: Boolean(companyId),
+    onRecover: () => fetchEvents(false),
+  });
+
   // --- FETCH & REAL-TIME SUPABASE ---
   useEffect(() => {
     isMountedRef.current = true;
@@ -165,7 +172,7 @@ export default function CalendarPage() {
 
     return () => {
       isMountedRef.current = false;
-      supabase.removeChannel(channel);
+      safeRemoveChannel(channel);
     };
   }, [companyId, fetchEvents]);
 
