@@ -30,7 +30,7 @@ const teamMembers = [
   {
     name: "Jeff Adriel Panjaitan",
     role: "Quality Assurance",
-    NIM: "28xxxxxxxx",
+    NIM: "2802487964",
     image: "/team/jeff.jpeg"
   },
 ];
