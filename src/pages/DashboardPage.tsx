@@ -63,7 +63,11 @@ const generateSmoothPath = (data: ChartDatum[], key: "current_val" | "previous_v
 
   data.forEach((d, i) => {
     const x = i * xStep;
-    const y = height - (d[key] / maxVal) * (height * 0.85); 
+    const value = Number(d[key]) || 0;
+
+    const y =
+      height -
+      (value / maxVal) * (height * 0.75);
     
     points.push({ cx: x, cy: y, val: d[key], label: d.month });
 
@@ -204,9 +208,13 @@ export default function DashboardPage() {
 
   // --- MENGHITUNG KORDINAT SVG ---
   const maxChartValue = Math.max(
-    ...chartRawData.map(d => d.current_val || 0), 
-    ...chartRawData.map(d => d.previous_val || 0), 
-    1 
+    ...chartRawData.map(d =>
+      Math.max(
+        Number(d.current_val) || 0,
+        Number(d.previous_val) || 0
+      )
+    ),
+    100
   );
 
   const width = 1200;
