@@ -11,39 +11,60 @@ export default function LandingPage() {
     <div className="min-h-screen text-slate-900 selection:bg-[#0f2ab3]/10 selection:text-[#0f2ab3]" style={{ backgroundColor: bgLight }}>
       
       {/* --- NAVIGATION --- */}
-      <nav className="fixed top-0 left-0 right-0 z-50 border-b border-[#0f2ab3]/5" style={{ background: "rgba(252, 252, 253, 0.8)", backdropFilter: "blur(12px)" }}>
-        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-          <div className="flex items-center gap-3">
+      <nav
+          className="fixed top-0 left-0 right-0 z-50 border-b border-[#0f2ab3]/5"
+          style={{
+            background: "rgba(252,252,253,0.8)",
+            backdropFilter: "blur(12px)",
+          }}>
+          <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
 
-            <img
-              src="/nextflowIcon-Cd3kiR7z.ico"
-              alt="NexusFlow Logo"
-              className="w-11 h-11 object-contain"
-            />
+            <Link to="/" className="flex items-center gap-3">
 
-            <span
-              className="text-xl font-black tracking-tight"
-              style={{ color: brandColor }}
-            >
-              NEXUSFLOW
-            </span>
+              <img
+                src="/nextflowIcon-Cd3kiR7z.ico"
+                alt="NexusFlow Logo"
+                className="w-11 h-11 object-contain"
+              />
 
-          </div>
-          <div className="hidden md:flex items-center gap-10">
-            <a className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors" href="#features">Features</a>
-            <Link to="/pricing" className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors">Pricing</Link>
-            <a className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors" href="/about">About</a>
-          </div>
-          <div className="flex items-center gap-4">
-            <Link to="/login" className="px-5 py-2.5 text-sm font-semibold hover:bg-[#0f2ab3]/5 rounded-lg transition-all" style={{ color: brandColor }}>
-              Sign In
+              <span className="text-xl font-black tracking-tight text-[#376CDD]">
+                NEXUSFLOW
+              </span>
+
             </Link>
-            <Link to="/login" className="text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-lg transition-all hover:-translate-y-0.5" style={{ backgroundColor: brandColor, boxShadow: "0 10px 15px -3px rgba(15, 42, 179, 0.2)" }}>
+
+            <div className="hidden md:flex items-center gap-10">
+              <Link
+                to="/"
+                className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
+              >
+                Home
+              </Link>
+
+              <Link
+                to="/pricing"
+                className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
+              >
+                Pricing
+              </Link>
+
+              <Link
+                to="/about"
+                className="text-sm font-bold text-[#376CDD]"
+              >
+                About
+              </Link>
+            </div>
+
+            <Link
+              to="/login"
+              className="text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-lg transition-all hover:-translate-y-0.5 bg-[#376CDD]"
+            >
               Get Started
             </Link>
+
           </div>
-        </div>
-      </nav>
+        </nav>
 
       {/* --- HERO SECTION --- */}
       <section className="pt-48 pb-24 px-6 overflow-hidden">

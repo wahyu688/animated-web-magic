@@ -56,8 +56,7 @@ export default function AboutPage() {
           style={{
             background: "rgba(252,252,253,0.8)",
             backdropFilter: "blur(12px)",
-          }}
-        >
+          }}>
           <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
 
             <Link to="/" className="flex items-center gap-3">
