@@ -7,7 +7,7 @@ import { supabase } from "../lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { logActivity } from "../lib/activityLogger";
 import { useCompany } from "@/hooks/use-company";
-import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 // --- INTERFACES ---
@@ -83,7 +83,10 @@ export default function KanbanPage() {
   }, [companyId, isCompanyLoading]);
 
   const fetchTasks = useCallback(async (showLoading = false) => {
-    if (!companyId) return;
+    if (!companyId) {
+      if (showLoading) setIsLoading(false);
+      return;
+    }
     const requestId = ++fetchRequestIdRef.current;
 
     try {
@@ -91,11 +94,14 @@ export default function KanbanPage() {
         setIsLoading(true);
       }
 
-      const { data, error } = await supabase
-        .from('kanban_tasks')
-        .select('*')
-        .eq('company_id', companyId)
-        .order('position', { ascending: true });
+      const { data, error } = await withSupabaseTimeout(
+        supabase
+          .from('kanban_tasks')
+          .select('*')
+          .eq('company_id', companyId)
+          .order('position', { ascending: true }),
+        "kanban tasks"
+      );
 
       if (error) throw error;
       if (!isMountedRef.current || requestId !== fetchRequestIdRef.current) return;
@@ -136,7 +142,7 @@ export default function KanbanPage() {
         variant: "destructive"
       });
     } finally {
-      if (isMountedRef.current && requestId === fetchRequestIdRef.current) {
+      if (isMountedRef.current && (showLoading || requestId === fetchRequestIdRef.current)) {
         setIsLoading(false);
       }
     }

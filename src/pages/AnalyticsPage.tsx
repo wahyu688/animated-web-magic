@@ -5,7 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useCompany } from "@/hooks/use-company";
-import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 
@@ -97,50 +97,66 @@ export default function AnalyticsPage() {
 
   useEffect(() => {
     const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) navigate("/login");
-      else setUserEmail(session.user.email || "User");
+      try {
+        const { data: { session } } = await withSupabaseTimeout(
+          supabase.auth.getSession(),
+          "analytics auth session"
+        );
+        if (!session) navigate("/login");
+        else setUserEmail(session.user.email || "User");
+      } catch (error) {
+        console.warn("Analytics auth session check failed:", error);
+        setUserEmail("User");
+      }
     };
     checkUser();
   }, [navigate]);
 
   const fetchAnalyticsData = useCallback(async (showLoading = false) => {
-    if (!companyId) return;
+    if (!companyId) {
+      if (showLoading) setIsLoadingDB(false);
+      return;
+    }
     const requestId = ++fetchRequestIdRef.current;
 
     try {
       if (showLoading) setIsLoadingDB(true);
-      const [kpiRes, chartRes] = await Promise.all([
-        supabase.from('dashboard_kpis').select('*').eq('company_id', companyId).limit(1).maybeSingle(),
-        supabase.from('chart_data').select('*').eq('company_id', companyId).order('sort_order', { ascending: true }) // Tarik data grafik
+      const [kpiRes, chartRes] = await Promise.allSettled([
+        withSupabaseTimeout(supabase.from('dashboard_kpis').select('*').eq('company_id', companyId).limit(1).maybeSingle(), "analytics dashboard_kpis"),
+        withSupabaseTimeout(supabase.from('chart_data').select('*').eq('company_id', companyId).order('sort_order', { ascending: true }), "analytics chart_data")
       ]);
 
-      const firstError = kpiRes.error || chartRes.error;
+      const firstError =
+        (kpiRes.status === "fulfilled" && kpiRes.value.error) ||
+        (chartRes.status === "fulfilled" && chartRes.value.error) ||
+        (kpiRes.status === "rejected" && kpiRes.reason) ||
+        (chartRes.status === "rejected" && chartRes.reason);
       if (firstError) throw firstError;
       if (!isMountedRef.current || requestId !== fetchRequestIdRef.current) return;
 
-      if (kpiRes.data) {
+      const kpi = kpiRes.status === "fulfilled" ? kpiRes.value.data : null;
+      if (kpi) {
         setKpiData({
-          revenue: kpiRes.data.total_revenue || "$0",
-          revenue_change: kpiRes.data.revenue_change || "0%",
-          revenue_trend: kpiRes.data.revenue_trend || "stable",
-          users: kpiRes.data.active_users || "0",
-          users_change: kpiRes.data.users_change || "0%",
-          users_trend: kpiRes.data.users_trend || "stable",
-          session: kpiRes.data.avg_session || "0",
-          session_change: kpiRes.data.session_change || "0%",
-          session_trend: kpiRes.data.session_trend || "stable",
-          churn: kpiRes.data.churn_rate || "0%",
-          churn_change: kpiRes.data.churn_change || "0%",
-          churn_trend: kpiRes.data.churn_trend || "stable"
+          revenue: kpi.total_revenue || "$0",
+          revenue_change: kpi.revenue_change || "0%",
+          revenue_trend: kpi.revenue_trend || "stable",
+          users: kpi.active_users || "0",
+          users_change: kpi.users_change || "0%",
+          users_trend: kpi.users_trend || "stable",
+          session: kpi.avg_session || "0",
+          session_change: kpi.session_change || "0%",
+          session_trend: kpi.session_trend || "stable",
+          churn: kpi.churn_rate || "0%",
+          churn_change: kpi.churn_change || "0%",
+          churn_trend: kpi.churn_trend || "stable"
         });
       }
-      setChartRawData(chartRes.data ?? []);
+      setChartRawData(chartRes.status === "fulfilled" ? chartRes.value.data ?? [] : []);
     } catch (error) {
       console.error("Gagal menarik data:", error);
       toast({ title: "Fetch Error", description: "Gagal memuat data analytics.", variant: "destructive" });
     } finally {
-      if (isMountedRef.current && requestId === fetchRequestIdRef.current) setIsLoadingDB(false);
+      if (isMountedRef.current && (showLoading || requestId === fetchRequestIdRef.current)) setIsLoadingDB(false);
     }
   }, [companyId, toast]);
 

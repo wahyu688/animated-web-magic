@@ -4,13 +4,17 @@ import { supabase } from "../../lib/supabase";
 import DashboardLayout from "./DashboardLayout";
 import DashboardSkeleton from "../DashboardSkeleton"; 
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
+import { withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 
 export default function ProtectedLayout({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const recoverAuth = useCallback(async () => {
-    const { data: { session }, error } = await supabase.auth.getSession();
+    const { data: { session }, error } = await withSupabaseTimeout(
+      supabase.auth.getSession(),
+      "protected auth recovery"
+    );
     if (error) {
       console.error("Auth session recovery error:", error);
       return;
@@ -28,7 +32,10 @@ export default function ProtectedLayout({ children }: { children: React.ReactNod
     // 1. Cek sesi saat komponen pertama kali dimuat
     const checkAuth = async () => {
       try {
-        const { data: { session }, error } = await supabase.auth.getSession();
+        const { data: { session }, error } = await withSupabaseTimeout(
+          supabase.auth.getSession(),
+          "protected auth check"
+        );
         if (error) console.error("Auth session check error:", error);
         if (!isMounted) return;
         setIsAuthenticated(!!session);

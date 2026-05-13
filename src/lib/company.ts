@@ -1,5 +1,6 @@
 import { supabase } from "./supabase";
 import type { User } from "@supabase/supabase-js";
+import { withSupabaseTimeout } from "./supabaseLifecycle";
 
 export interface CompanyContext {
   userId: string;
@@ -30,26 +31,32 @@ async function acceptPendingInvitation(user: User): Promise<CompanyContext | nul
   const email = user.email?.toLowerCase();
   if (!email) return null;
 
-  const { data: invitation, error: invitationError } = await supabase
-    .from("invitations")
-    .select("id, company_id, status")
-    .eq("email", email)
-    .eq("status", "pending")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const { data: invitation, error: invitationError } = await withSupabaseTimeout(
+    supabase
+      .from("invitations")
+      .select("id, company_id, status")
+      .eq("email", email)
+      .eq("status", "pending")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+    "company pending invitation"
+  );
 
   if (invitationError) throw invitationError;
   if (!invitation?.company_id) return null;
 
   const role = "member";
 
-  const { data: existingMember, error: existingMemberError } = await supabase
-    .from("company_members")
-    .select("id")
-    .eq("company_id", invitation.company_id)
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const { data: existingMember, error: existingMemberError } = await withSupabaseTimeout(
+    supabase
+      .from("company_members")
+      .select("id")
+      .eq("company_id", invitation.company_id)
+      .eq("user_id", user.id)
+      .maybeSingle(),
+    "company existing member"
+  );
 
   if (existingMemberError) throw existingMemberError;
 
@@ -62,20 +69,28 @@ async function acceptPendingInvitation(user: User): Promise<CompanyContext | nul
         .from("company_members")
         .insert({ company_id: invitation.company_id, user_id: user.id, role, status: "active" });
 
-  const { error: memberError } = await memberWrite;
+  const { error: memberError } = await withSupabaseTimeout(memberWrite, "company member write");
   if (memberError) throw memberError;
 
-  await Promise.all([
-    supabase
-      .from("invitations")
-      .update({ status: "accepted" })
-      .eq("id", invitation.id),
-    supabase
-      .from("user_profiles")
-      .update({ company_id: invitation.company_id, role, updated_at: new Date().toISOString() })
-      .eq("id", user.id),
+  await Promise.allSettled([
+    withSupabaseTimeout(
+      supabase
+        .from("invitations")
+        .update({ status: "accepted" })
+        .eq("id", invitation.id),
+      "company invitation accept"
+    ),
+    withSupabaseTimeout(
+      supabase
+        .from("user_profiles")
+        .update({ company_id: invitation.company_id, role, updated_at: new Date().toISOString() })
+        .eq("id", user.id),
+      "company profile update"
+    ),
   ]).then((results) => {
-    const firstError = results.find((result) => result.error)?.error;
+    const firstError = results.find((result) =>
+      result.status === "rejected" || result.value.error
+    );
     if (firstError) throw firstError;
   });
 
@@ -90,33 +105,39 @@ async function loadCurrentCompany(): Promise<CompanyContext | null> {
   const {
     data: { session },
     error: sessionError,
-  } = await supabase.auth.getSession();
+  } = await withSupabaseTimeout(supabase.auth.getSession(), "company auth session");
 
   if (sessionError) throw sessionError;
   if (!session?.user) return null;
 
   const user = session.user;
 
-  const { data: membership, error: membershipError } = await supabase
-    .from("company_members")
-    .select("company_id, role")
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .order("created_at", { ascending: true })
-    .limit(1)
-    .maybeSingle();
+  const { data: membership, error: membershipError } = await withSupabaseTimeout(
+    supabase
+      .from("company_members")
+      .select("company_id, role")
+      .eq("user_id", user.id)
+      .eq("status", "active")
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
+    "company active membership"
+  );
 
   if (membershipError) throw membershipError;
 
   if (membership?.company_id) {
-    await supabase
-      .from("user_profiles")
-      .update({
-        company_id: membership.company_id,
-        role: membership.role ?? "member",
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", user.id);
+    await withSupabaseTimeout(
+      supabase
+        .from("user_profiles")
+        .update({
+          company_id: membership.company_id,
+          role: membership.role ?? "member",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", user.id),
+      "company profile membership sync"
+    );
 
     return {
       userId: user.id,
@@ -128,22 +149,28 @@ async function loadCurrentCompany(): Promise<CompanyContext | null> {
   const acceptedInvite = await acceptPendingInvitation(user);
   if (acceptedInvite) return acceptedInvite;
 
-  const { data: profile, error: profileError } = await supabase
-    .from("user_profiles")
-    .select("company_id, role")
-    .eq("id", user.id)
-    .maybeSingle();
+  const { data: profile, error: profileError } = await withSupabaseTimeout(
+    supabase
+      .from("user_profiles")
+      .select("company_id, role")
+      .eq("id", user.id)
+      .maybeSingle(),
+    "company profile lookup"
+  );
 
   if (profileError) throw profileError;
   if (!profile?.company_id) return null;
 
   const role = profile.role ?? "member";
-  const { data: repairedMember, error: repairedMemberError } = await supabase
-    .from("company_members")
-    .select("id")
-    .eq("company_id", profile.company_id)
-    .eq("user_id", user.id)
-    .maybeSingle();
+  const { data: repairedMember, error: repairedMemberError } = await withSupabaseTimeout(
+    supabase
+      .from("company_members")
+      .select("id")
+      .eq("company_id", profile.company_id)
+      .eq("user_id", user.id)
+      .maybeSingle(),
+    "company repaired member lookup"
+  );
 
   if (repairedMemberError) throw repairedMemberError;
 
@@ -156,7 +183,7 @@ async function loadCurrentCompany(): Promise<CompanyContext | null> {
         .from("company_members")
         .insert({ company_id: profile.company_id, user_id: user.id, role, status: "active" });
 
-  const { error: repairError } = await repairWrite;
+  const { error: repairError } = await withSupabaseTimeout(repairWrite, "company repair write");
 
   if (repairError) throw repairError;
 
@@ -170,7 +197,7 @@ async function loadCurrentCompany(): Promise<CompanyContext | null> {
 export async function getCurrentCompany(): Promise<CompanyContext | null> {
   const {
     data: { session },
-  } = await supabase.auth.getSession();
+  } = await withSupabaseTimeout(supabase.auth.getSession(), "company cached auth session");
 
   const sessionUserId = session?.user?.id ?? null;
   if (cachedCompany && cachedUserId === sessionUserId) return cachedCompany;

@@ -11,7 +11,7 @@ import { LogOut } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { clearCompanyCache } from "@/lib/company";
 import DashboardSkeleton from "../DashboardSkeleton";
-import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 const navItems = [
@@ -53,18 +53,28 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   useEffect(() => {
     isMountedRef.current = true;
     const fetchProfile = async () => {
-      const { data: { user }, error } = await supabase.auth.getUser();
-      if (error) console.error("Profile auth fetch error:", error);
-      if (user && isMountedRef.current) {
-        // Ambil data dari tabel user_profiles
-        const { data, error: profileError } = await supabase.from("user_profiles").select('first_name, last_name').eq('id', user.id).maybeSingle();
-        if (profileError) console.error("Profile fetch error:", profileError);
-        
-        setProfile({
-          firstName: data?.first_name || user.user_metadata?.first_name || "User",
-          lastName: data?.last_name || user.user_metadata?.last_name || "",
-          email: user.email || ""
-        });
+      try {
+        const { data: { user }, error } = await withSupabaseTimeout(
+          supabase.auth.getUser(),
+          "layout auth user"
+        );
+        if (error) console.error("Profile auth fetch error:", error);
+        if (user && isMountedRef.current) {
+          // Ambil data dari tabel user_profiles
+          const { data, error: profileError } = await withSupabaseTimeout(
+            supabase.from("user_profiles").select('first_name, last_name').eq('id', user.id).maybeSingle(),
+            "layout profile"
+          );
+          if (profileError) console.error("Profile fetch error:", profileError);
+          
+          setProfile({
+            firstName: data?.first_name || user.user_metadata?.first_name || "User",
+            lastName: data?.last_name || user.user_metadata?.last_name || "",
+            email: user.email || ""
+          });
+        }
+      } catch (error) {
+        console.warn("Profile fetch timed out or failed:", error);
       }
     };
     fetchProfile();
@@ -82,11 +92,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       return;
     }
 
-    const { count, error } = await supabase
-      .from('notifications')
-      .select('*', { count: 'exact', head: true })
-      .eq('company_id', companyId)
-      .eq('unread', true);
+    const { count, error } = await withSupabaseTimeout(
+      supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('company_id', companyId)
+        .eq('unread', true),
+      "layout unread notifications"
+    );
     
     if (error) {
       console.error("Unread notification count error:", error);

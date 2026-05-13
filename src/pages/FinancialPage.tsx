@@ -4,7 +4,7 @@ import { Save, Loader2, Calculator, Receipt, TrendingUp, CheckCircle2 } from "lu
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 import { useCompany } from "@/hooks/use-company";
-import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 const ALL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -67,23 +67,30 @@ export default function FinancialPage() {
   });
 
   const fetchFinanceData = useCallback(async (showLoading = false) => {
-    if (!companyId) return;
+    if (!companyId) {
+      if (showLoading) setIsLoading(false);
+      return;
+    }
 
     try {
       if (showLoading) setIsLoading(true);
 
       // Ambil data KPI dan Grafik
-      const [kpiRes, chartRes] = await Promise.all([
-        supabase.from('dashboard_kpis').select('id').eq('company_id', companyId).limit(1).maybeSingle(),
-        supabase.from('chart_data').select('*').eq('company_id', companyId).order('sort_order', { ascending: true })
+      const [kpiRes, chartRes] = await Promise.allSettled([
+        withSupabaseTimeout(supabase.from('dashboard_kpis').select('id').eq('company_id', companyId).limit(1).maybeSingle(), "financial dashboard_kpis"),
+        withSupabaseTimeout(supabase.from('chart_data').select('*').eq('company_id', companyId).order('sort_order', { ascending: true }), "financial chart_data")
       ]);
 
-      const firstError = kpiRes.error || chartRes.error;
+      const firstError =
+        (kpiRes.status === "fulfilled" && kpiRes.value.error) ||
+        (chartRes.status === "fulfilled" && chartRes.value.error) ||
+        (kpiRes.status === "rejected" && kpiRes.reason) ||
+        (chartRes.status === "rejected" && chartRes.reason);
       if (firstError) throw firstError;
       if (!isMountedRef.current) return;
 
-      setKpiId(kpiRes.data?.id ?? "");
-      setChartData(chartRes.data ?? []);
+      setKpiId(kpiRes.status === "fulfilled" ? kpiRes.value.data?.id ?? "" : "");
+      setChartData(chartRes.status === "fulfilled" ? chartRes.value.data ?? [] : []);
     } catch (error) {
       console.error("Gagal memuat data:", error);
       toast({ title: "Fetch Error", description: "Failed to load financial data.", variant: "destructive" });

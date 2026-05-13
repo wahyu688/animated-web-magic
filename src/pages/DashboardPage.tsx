@@ -5,7 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
 import { useCompany } from "@/hooks/use-company";
-import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 const cardVariants = {
@@ -115,15 +115,24 @@ export default function DashboardPage() {
   // 1. Cek User Session
   useEffect(() => {
     const checkUser = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) navigate("/login");
-      else setUserEmail(session.user.email || "User");
+      try {
+        const { data: { session } } = await withSupabaseTimeout(
+          supabase.auth.getSession(),
+          "dashboard auth session"
+        );
+        if (!session) navigate("/login");
+        else setUserEmail(session.user.email || "User");
+      } catch (error) {
+        console.warn("Dashboard auth session check failed:", error);
+        setUserEmail("User");
+      }
     };
     checkUser();
   }, [navigate]);
 
   const fetchDashboardInfo = useCallback(async (showLoading = false) => {
     if (!companyId) {
+      if (showLoading) setIsLoadingDB(false);
       navigate("/pricing");
       return;
     }
@@ -131,41 +140,50 @@ export default function DashboardPage() {
 
     try {
       if (showLoading) setIsLoadingDB(true);
-      const [pagesRes, trafficRes, kpiRes, chartRes] = await Promise.all([
-        supabase.from('top_pages').select('*').eq('company_id', companyId).order('views', { ascending: false }),
-        supabase.from('traffic_sources').select('*').eq('company_id', companyId).order('pct', { ascending: false }),
-        supabase.from('dashboard_kpis').select('*').eq('company_id', companyId).limit(1).maybeSingle(),
-        supabase.from('chart_data').select('*').eq('company_id', companyId).order('sort_order', { ascending: true })
+      const [pagesRes, trafficRes, kpiRes, chartRes] = await Promise.allSettled([
+        withSupabaseTimeout(supabase.from('top_pages').select('*').eq('company_id', companyId).order('views', { ascending: false }), "dashboard top_pages"),
+        withSupabaseTimeout(supabase.from('traffic_sources').select('*').eq('company_id', companyId).order('pct', { ascending: false }), "dashboard traffic_sources"),
+        withSupabaseTimeout(supabase.from('dashboard_kpis').select('*').eq('company_id', companyId).limit(1).maybeSingle(), "dashboard dashboard_kpis"),
+        withSupabaseTimeout(supabase.from('chart_data').select('*').eq('company_id', companyId).order('sort_order', { ascending: true }), "dashboard chart_data")
       ]);
 
-      const firstError = pagesRes.error || trafficRes.error || kpiRes.error || chartRes.error;
+      const firstError =
+        (pagesRes.status === "fulfilled" && pagesRes.value.error) ||
+        (trafficRes.status === "fulfilled" && trafficRes.value.error) ||
+        (kpiRes.status === "fulfilled" && kpiRes.value.error) ||
+        (chartRes.status === "fulfilled" && chartRes.value.error) ||
+        (pagesRes.status === "rejected" && pagesRes.reason) ||
+        (trafficRes.status === "rejected" && trafficRes.reason) ||
+        (kpiRes.status === "rejected" && kpiRes.reason) ||
+        (chartRes.status === "rejected" && chartRes.reason);
       if (firstError) throw firstError;
       if (!isMountedRef.current || requestId !== fetchRequestIdRef.current) return;
 
-      setTopPages(pagesRes.data ?? []);
-      setTrafficSources(trafficRes.data ?? []);
-      if (kpiRes.data) {
+      setTopPages(pagesRes.status === "fulfilled" ? pagesRes.value.data ?? [] : []);
+      setTrafficSources(trafficRes.status === "fulfilled" ? trafficRes.value.data ?? [] : []);
+      const kpi = kpiRes.status === "fulfilled" ? kpiRes.value.data : null;
+      if (kpi) {
         setKpiData({
-          revenue: kpiRes.data.total_revenue || "$0", 
-          revenue_change: kpiRes.data.revenue_change || "0%", 
-          revenue_trend: kpiRes.data.revenue_trend || "stable",
-          users: kpiRes.data.active_users || "0", 
-          users_change: kpiRes.data.users_change || "0%", 
-          users_trend: kpiRes.data.users_trend || "stable",
-          session: kpiRes.data.avg_session || "0", 
-          session_change: kpiRes.data.session_change || "0%", 
-          session_trend: kpiRes.data.session_trend || "stable",
-          churn: kpiRes.data.churn_rate || "0%", 
-          churn_change: kpiRes.data.churn_change || "0%", 
-          churn_trend: kpiRes.data.churn_trend || "stable"
+          revenue: kpi.total_revenue || "$0", 
+          revenue_change: kpi.revenue_change || "0%", 
+          revenue_trend: kpi.revenue_trend || "stable",
+          users: kpi.active_users || "0", 
+          users_change: kpi.users_change || "0%", 
+          users_trend: kpi.users_trend || "stable",
+          session: kpi.avg_session || "0", 
+          session_change: kpi.session_change || "0%", 
+          session_trend: kpi.session_trend || "stable",
+          churn: kpi.churn_rate || "0%", 
+          churn_change: kpi.churn_change || "0%", 
+          churn_trend: kpi.churn_trend || "stable"
         });
       }
-      setChartRawData(chartRes.data ?? []);
+      setChartRawData(chartRes.status === "fulfilled" ? chartRes.value.data ?? [] : []);
     } catch (error) {
       console.error("Gagal menarik data:", error);
       toast({ title: "Fetch Error", description: "Gagal memuat data dashboard.", variant: "destructive" });
     } finally {
-      if (isMountedRef.current && requestId === fetchRequestIdRef.current) setIsLoadingDB(false);
+      if (isMountedRef.current && (showLoading || requestId === fetchRequestIdRef.current)) setIsLoadingDB(false);
     }
   }, [companyId, navigate, toast]);
 

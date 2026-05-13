@@ -4,7 +4,7 @@ import { AtSign, AlertTriangle, Upload, CheckCircle, GitBranch, ArrowDown, Check
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 import { useCompany } from "@/hooks/use-company";
-import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 // --- PETA IKON ---
@@ -95,17 +95,23 @@ export default function ActivityPage() {
   const [viewingTicket, setViewingTicket] = useState<NotificationItem | null>(null);
 
   const fetchNotifications = useCallback(async (showLoading = false) => {
-    if (!companyId) return;
+    if (!companyId) {
+      if (showLoading) setIsLoading(false);
+      return;
+    }
     const requestId = ++fetchRequestIdRef.current;
 
     try {
       if (showLoading) setIsLoading(true);
 
-      const { data, error } = await supabase
-        .from('notifications')
-        .select('*')
-        .eq('company_id', companyId)
-        .order('created_at', { ascending: false });
+      const { data, error } = await withSupabaseTimeout(
+        supabase
+          .from('notifications')
+          .select('*')
+          .eq('company_id', companyId)
+          .order('created_at', { ascending: false }),
+        "activity notifications"
+      );
       if (error) throw error;
       if (!isMountedRef.current || requestId !== fetchRequestIdRef.current) return;
 
@@ -120,7 +126,7 @@ export default function ActivityPage() {
       console.error("Error fetching notifications:", error);
       toast({ title: "Fetch Error", description: "Gagal memuat activity feed.", variant: "destructive" });
     } finally {
-      if (isMountedRef.current && requestId === fetchRequestIdRef.current) setIsLoading(false);
+      if (isMountedRef.current && (showLoading || requestId === fetchRequestIdRef.current)) setIsLoading(false);
     }
   }, [companyId, toast]);
 

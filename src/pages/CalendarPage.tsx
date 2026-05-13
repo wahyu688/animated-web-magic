@@ -5,7 +5,7 @@ import { supabase } from "../lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { logActivity } from "../lib/activityLogger";
 import { useCompany } from "@/hooks/use-company";
-import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 // --- TYPES ---
@@ -124,17 +124,23 @@ export default function CalendarPage() {
   });
 
   const fetchEvents = useCallback(async (showLoading = false) => {
-    if (!companyId) return;
+    if (!companyId) {
+      if (showLoading) setIsLoading(false);
+      return;
+    }
     const requestId = ++fetchRequestIdRef.current;
 
     try {
       if (showLoading) setIsLoading(true);
-      const { data, error } = await supabase
-        .from('calendar_events')
-        .select('*')
-        .eq('company_id', companyId)
-        .order('date_str', { ascending: true })
-        .order('time', { ascending: true });
+      const { data, error } = await withSupabaseTimeout(
+        supabase
+          .from('calendar_events')
+          .select('*')
+          .eq('company_id', companyId)
+          .order('date_str', { ascending: true })
+          .order('time', { ascending: true }),
+        "calendar events"
+      );
       if (error) throw error;
       if (!isMountedRef.current || requestId !== fetchRequestIdRef.current) return;
       setAllEvents((data ?? []).map(formatEvent));
@@ -142,7 +148,7 @@ export default function CalendarPage() {
       console.error("Gagal menarik jadwal:", error);
       toast({ title: "Fetch Error", description: "Gagal memuat jadwal kalender.", variant: "destructive" });
     } finally {
-      if (isMountedRef.current && requestId === fetchRequestIdRef.current) setIsLoading(false);
+      if (isMountedRef.current && (showLoading || requestId === fetchRequestIdRef.current)) setIsLoading(false);
     }
   }, [companyId, toast]);
 

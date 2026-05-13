@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 import { logActivity } from "../lib/activityLogger";
 import { useCompany } from "@/hooks/use-company";
-import { safeRemoveChannel } from "@/lib/supabaseLifecycle";
+import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 // --- TYPES & UTILS ---
@@ -113,27 +113,36 @@ export default function TeamPage() {
 
   // --- FETCH DATA (GABUNGAN PROFIL & UNDANGAN) ---
   const fetchMembers = useCallback(async (showLoading = false) => {
-    if (!companyId) return;
+    if (!companyId) {
+      if (showLoading) setIsLoading(false);
+      return;
+    }
 
     try {
       if (showLoading) setIsLoading(true);
 
       // 1. Ambil Karyawan Aktif dari company_members, lalu join ke user_profiles.
-      const { data: activeMembers, error: activeError } = await supabase
-        .from("company_members")
-        .select(`
-          id,
-          user_id,
-          role,
-          status,
-          created_at,
-          user_profiles (*)
-        `)
-        .eq("company_id", companyId)
-        .eq("status", "active");
+      const { data: activeMembers, error: activeError } = await withSupabaseTimeout(
+        supabase
+          .from("company_members")
+          .select(`
+            id,
+            user_id,
+            role,
+            status,
+            created_at,
+            user_profiles (*)
+          `)
+          .eq("company_id", companyId)
+          .eq("status", "active"),
+        "team active members"
+      );
       
       // 2. Ambil Undangan Pending
-      const { data: pendingInvites, error: invitesError } = await supabase.from('invitations').select('*').eq('company_id', companyId).eq('status', 'pending');
+      const { data: pendingInvites, error: invitesError } = await withSupabaseTimeout(
+        supabase.from('invitations').select('*').eq('company_id', companyId).eq('status', 'pending'),
+        "team pending invitations"
+      );
 
       if (activeError || invitesError) throw activeError || invitesError;
       if (invitesError) {
