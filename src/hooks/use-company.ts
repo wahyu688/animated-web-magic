@@ -23,7 +23,12 @@ export function useCompany() {
       setCompanyId(company?.companyId ?? null);
       setUserId(company?.userId ?? null);
     } catch (error) {
-      console.error("Company context error:", error);
+      if (
+        !(error instanceof Error) ||
+        error.name !== "AuthSessionMissingError"
+      ) {
+        console.error("Company context error:", error);
+      }
 
       setCompanyId(null);
       setUserId(null);
@@ -59,18 +64,30 @@ export function useCompany() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((event) => {
-      console.log("Auth state changed:", event);
+    } = supabase.auth.onAuthStateChange(
+      async (event, session) => {
 
-      if (!mounted) return;
+        console.log("Auth state changed:", event);
 
-      loadCompany();
-    });
+        if (!mounted) return;
+
+        if (!session) {
+          setCompanyId(null);
+          setUserId(null);
+          setCompanyError(null);
+          setIsCompanyLoading(false);
+          return;
+        }
+
+        await loadCompany();
+      }
+    );
 
     return () => {
       mounted = false;
       subscription.unsubscribe();
     };
+
   }, [loadCompany]);
 
   return {
