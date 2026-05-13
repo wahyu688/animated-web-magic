@@ -19,7 +19,7 @@ const teamMembers = [
     name: "Andhani Tasya Assalwa Putri",
     role: "UI/UX Designer",
     NIM: "2802470793",
-    image: "/team/andhani.jpeg"
+    image: "/team/salwa.jpeg"
   },
   {
     name: "Victor Jonathan Harianto",
