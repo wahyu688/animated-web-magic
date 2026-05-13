@@ -37,12 +37,31 @@ export default function FinancialPage() {
 
   // State Form Input Mentah (Raw Data)
   const [formData, setFormData] = useState({
-    month: "Jan", // Default ke bulan pertama
-    actualRevenue: "",
-    targetRevenue: "",
-    activeUsers: "",
-    churnedUsers: "",
-    avgSessionMinutes: ""
+    month: "Jan",
+
+    // Revenue
+    subscriptionRevenue: "",
+    enterpriseRevenue: "",
+    oneTimeRevenue: "",
+    refunds: "",
+
+    // Customers
+    newCustomers: "",
+    lostCustomers: "",
+    activeCustomers: "",
+    trialUsers: "",
+
+    // Expenses
+    payrollExpenses: "",
+    marketingSpend: "",
+    infrastructureCost: "",
+    softwareLicenses: "",
+    operationalExpenses: "",
+
+    // Operations
+    monthlyActiveUsers: "",
+    avgSessionMinutes: "",
+    supportTickets: ""
   });
 
   const fetchFinanceData = useCallback(async (showLoading = false) => {
@@ -105,33 +124,70 @@ export default function FinancialPage() {
     setIsProcessing(true);
 
     try {
-      const rev = Number(formData.actualRevenue);
-      const target = Number(formData.targetRevenue);
-      const users = Number(formData.activeUsers);
-      const churned = Number(formData.churnedUsers);
+      const subscriptionRevenue = Number(formData.subscriptionRevenue);
+      const enterpriseRevenue = Number(formData.enterpriseRevenue);
+      const oneTimeRevenue = Number(formData.oneTimeRevenue);
+      const refunds = Number(formData.refunds);
+
+      const newCustomers = Number(formData.newCustomers);
+      const lostCustomers = Number(formData.lostCustomers);
+      const activeCustomers = Number(formData.activeCustomers);
+
+      const payroll = Number(formData.payrollExpenses);
+      const marketing = Number(formData.marketingSpend);
+      const infrastructure = Number(formData.infrastructureCost);
+      const software = Number(formData.softwareLicenses);
+      const operational = Number(formData.operationalExpenses);
+
       const sessionMins = Number(formData.avgSessionMinutes);
 
-      const revGrowth = target > 0 ? ((rev - target) / target) * 100 : 0;
-      const revTrend = revGrowth >= 0 ? "up" : "down";
+      const totalRevenue =
+        subscriptionRevenue +
+        enterpriseRevenue +
+        oneTimeRevenue -
+        refunds;
 
-      const churnRate = users > 0 ? (churned / users) * 100 : 0;
-      const churnTrend = churnRate <= 3 ? "stable" : "down"; 
+      const totalExpenses =
+        payroll +
+        marketing +
+        infrastructure +
+        software +
+        operational;
 
-      const formattedMins = Math.floor(sessionMins);
-      const formattedSecs = Math.round((sessionMins % 1) * 60);
+      const netProfit = totalRevenue - totalExpenses;
 
-      const kpiPayload = {
-        total_revenue: new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(rev),
-        revenue_change: `${revGrowth >= 0 ? '+' : ''}${revGrowth.toFixed(1)}%`,
-        revenue_trend: revTrend,
-        active_users: new Intl.NumberFormat('en-US').format(users),
-        users_change: "Live", 
+      const churnRate =
+        activeCustomers > 0
+          ? (lostCustomers / activeCustomers) * 100
+          : 0;
+
+      const revenueGrowth =
+        totalRevenue > 0
+          ? ((netProfit) / totalRevenue) * 100
+          : 0;
+
+
+       const kpiPayload = {
+        total_revenue: new Intl.NumberFormat('en-US', {
+          style: 'currency',
+          currency: 'USD',
+          maximumFractionDigits: 0
+        }).format(totalRevenue),
+
+        revenue_change: `${revenueGrowth >= 0 ? '+' : ''}${revenueGrowth.toFixed(1)}%`,
+        revenue_trend: revenueGrowth >= 0 ? "up" : "down",
+
+        active_users: new Intl.NumberFormat('en-US').format(activeCustomers),
+
+        users_change: `+${newCustomers}`,
         users_trend: "up",
+
         churn_rate: `${churnRate.toFixed(1)}%`,
-        churn_change: "Calculated",
-        churn_trend: churnTrend,
-        avg_session: `${formattedMins}m ${formattedSecs}s`,
-        session_change: "Live",
+        churn_change: `${lostCustomers} lost`,
+        churn_trend: churnRate <= 5 ? "stable" : "down",
+
+        avg_session: `${Math.floor(sessionMins)}m ${Math.round((sessionMins % 1) * 60)}s`,
+        session_change: "Operational",
         session_trend: "stable"
       };
 
@@ -151,10 +207,10 @@ export default function FinancialPage() {
       const existingMonth = chartData.find(c => c.month === formData.month);
       if (existingMonth) {
         // Jika bulan ini sudah ada datanya, Update
-        const { error } = await supabase.from('chart_data').update({ current_val: rev, previous_val: target }).eq('company_id', companyId).eq('id', existingMonth.id);
+        const { error } = await supabase.from('chart_data').update({ current_val: totalRevenue, previous_val: totalExpenses }).eq('company_id', companyId).eq('id', existingMonth.id);
         if (error) throw error;
           
-        const updatedChart = chartData.map(c => c.id === existingMonth.id ? { ...c, current_val: rev, previous_val: target } : c);
+        const updatedChart = chartData.map(c => c.id === existingMonth.id ? { ...c, current_val: totalRevenue, previous_val: totalExpenses } : c);
         setChartData(updatedChart);
       } else {
         // Jika bulan ini belum ada (akun baru), Insert
@@ -162,8 +218,8 @@ export default function FinancialPage() {
         const chartRes = await supabase.from('chart_data').insert({
           company_id: companyId,
           month: formData.month,
-          current_val: rev,
-          previous_val: target,
+          current_val: totalRevenue,
+          previous_val: totalExpenses,
           sort_order: sortOrder
         }).select().maybeSingle();
 
@@ -175,7 +231,29 @@ export default function FinancialPage() {
       }
 
       // Reset form agar gampang input bulan berikutnya (Opsional)
-      setFormData({ ...formData, actualRevenue: "", targetRevenue: "", activeUsers: "", churnedUsers: "", avgSessionMinutes: "" });
+      setFormData({
+        month: formData.month,
+
+        subscriptionRevenue: "",
+        enterpriseRevenue: "",
+        oneTimeRevenue: "",
+        refunds: "",
+
+        newCustomers: "",
+        lostCustomers: "",
+        activeCustomers: "",
+        trialUsers: "",
+
+        payrollExpenses: "",
+        marketingSpend: "",
+        infrastructureCost: "",
+        softwareLicenses: "",
+        operationalExpenses: "",
+
+        monthlyActiveUsers: "",
+        avgSessionMinutes: "",
+        supportTickets: ""
+      });
 
       toast({ 
         title: "Report Processed", 
@@ -234,47 +312,373 @@ export default function FinancialPage() {
               </select>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 pt-2">
-              <div className="space-y-1.5">
-                <label className="text-sm font-bold text-foreground">Actual Revenue ($)</label>
-                <input 
-                  type="number" value={formData.actualRevenue} onChange={(e) => setFormData({...formData, actualRevenue: e.target.value})} required placeholder="e.g. 84230"
-                  className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 text-foreground"
-                />
+            <div className="rounded-2xl border border-border/50 p-5 bg-muted/20 space-y-5">
+
+              <h3 className="text-sm font-black uppercase tracking-wide text-primary">
+                Revenue
+              </h3>
+
+              <div className="grid grid-cols-2 gap-4">
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    Subscription Revenue
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.subscriptionRevenue}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        subscriptionRevenue: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 120000"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 text-foreground"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    Enterprise Revenue
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.enterpriseRevenue}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        enterpriseRevenue: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 45000"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 text-foreground"
+                  />
+                </div>
+
               </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-bold text-foreground">Target / Prev Rev ($)</label>
-                <input 
-                  type="number" value={formData.targetRevenue} onChange={(e) => setFormData({...formData, targetRevenue: e.target.value})} required placeholder="e.g. 75000"
-                  className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 text-foreground"
-                />
+
+              <div className="grid grid-cols-2 gap-4">
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    One-Time Revenue
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.oneTimeRevenue}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        oneTimeRevenue: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 12000"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 text-foreground"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    Refunds / Discounts
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.refunds}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        refunds: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 3000"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 text-foreground"
+                  />
+                </div>
+
               </div>
+
             </div>
 
-            <div className="grid grid-cols-2 gap-4 pt-2">
-              <div className="space-y-1.5">
-                <label className="text-sm font-bold text-foreground">Total Active Users</label>
-                <input 
-                  type="number" value={formData.activeUsers} onChange={(e) => setFormData({...formData, activeUsers: e.target.value})} required placeholder="e.g. 1240"
-                  className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 text-foreground"
-                />
+            <div className="rounded-2xl border border-border/50 p-5 bg-muted/20 space-y-5">
+
+              <h3 className="text-sm font-black uppercase tracking-wide text-primary">
+                Customers
+              </h3>
+
+              <div className="grid grid-cols-2 gap-4">
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    New Customers
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.newCustomers}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        newCustomers: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 120"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 text-foreground"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    Lost Customers
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.lostCustomers}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        lostCustomers: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 12"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 text-foreground"
+                  />
+                </div>
+
               </div>
-              <div className="space-y-1.5">
-                <label className="text-sm font-bold text-foreground">Churned Users</label>
-                <input 
-                  type="number" value={formData.churnedUsers} onChange={(e) => setFormData({...formData, churnedUsers: e.target.value})} required placeholder="e.g. 30"
-                  className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 text-foreground"
-                />
+
+              <div className="grid grid-cols-2 gap-4">
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    Active Customers
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.activeCustomers}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        activeCustomers: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 1450"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 text-foreground"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    Trial Users
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.trialUsers}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        trialUsers: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 250"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 text-foreground"
+                  />
+                </div>
+
               </div>
+
             </div>
 
-            <div className="space-y-1.5 pt-2">
-              <label className="text-sm font-bold text-foreground">Avg. Session (Minutes)</label>
-              <input 
-                type="number" step="0.1" value={formData.avgSessionMinutes} onChange={(e) => setFormData({...formData, avgSessionMinutes: e.target.value})} required placeholder="e.g. 4.5"
-                className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-primary/20 text-foreground"
-              />
-              <p className="text-[10px] text-muted-foreground mt-1">Use decimals (e.g., 4.5 = 4m 30s)</p>
+            <div className="rounded-2xl border border-border/50 p-5 bg-muted/20 space-y-5">
+
+              <h3 className="text-sm font-black uppercase tracking-wide text-destructive">
+                Expenses
+              </h3>
+
+              <div className="grid grid-cols-2 gap-4">
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    Payroll Expenses
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.payrollExpenses}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        payrollExpenses: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 45000"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-destructive/20 text-foreground"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    Marketing Spend
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.marketingSpend}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        marketingSpend: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 12000"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-destructive/20 text-foreground"
+                  />
+                </div>
+
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    Infrastructure Cost
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.infrastructureCost}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        infrastructureCost: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 8000"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-destructive/20 text-foreground"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    Software Licenses
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.softwareLicenses}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        softwareLicenses: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 3000"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-destructive/20 text-foreground"
+                  />
+                </div>
+
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-bold text-foreground">
+                  Operational Expenses
+                </label>
+
+                <input
+                  type="number"
+                  value={formData.operationalExpenses}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      operationalExpenses: e.target.value
+                    })
+                  }
+                  placeholder="e.g. 5000"
+                  className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-destructive/20 text-foreground"
+                />
+              </div>
+
+            </div>
+
+            <div className="rounded-2xl border border-border/50 p-5 bg-muted/20 space-y-5">
+
+              <h3 className="text-sm font-black uppercase tracking-wide text-info">
+                Operations
+              </h3>
+
+              <div className="grid grid-cols-2 gap-4">
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    Monthly Active Users
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.monthlyActiveUsers}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        monthlyActiveUsers: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 25000"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-info/20 text-foreground"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-sm font-bold text-foreground">
+                    Support Tickets
+                  </label>
+
+                  <input
+                    type="number"
+                    value={formData.supportTickets}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        supportTickets: e.target.value
+                      })
+                    }
+                    placeholder="e.g. 32"
+                    className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-info/20 text-foreground"
+                  />
+                </div>
+
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-bold text-foreground">
+                  Avg. Session Duration (Minutes)
+                </label>
+
+                <input
+                  type="number"
+                  step="0.1"
+                  value={formData.avgSessionMinutes}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      avgSessionMinutes: e.target.value
+                    })
+                  }
+                  placeholder="e.g. 6.5"
+                  className="w-full px-4 py-2.5 bg-muted rounded-xl border-none text-sm focus:ring-2 focus:ring-info/20 text-foreground"
+                />
+
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Example: 6.5 = 6m 30s
+                </p>
+              </div>
+
             </div>
 
             <button type="submit" disabled={isProcessing} className="w-full mt-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold flex items-center justify-center gap-2 shadow-primary-glow hover:opacity-90 transition-opacity disabled:opacity-50">
