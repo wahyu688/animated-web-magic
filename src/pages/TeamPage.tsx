@@ -134,6 +134,10 @@ export default function TeamPage() {
       const { data: pendingInvites, error: invitesError } = await supabase.from('invitations').select('*').eq('company_id', companyId).eq('status', 'pending');
 
       if (activeError || invitesError) throw activeError || invitesError;
+      if (invitesError) {
+          console.error(invitesError);
+          throw invitesError;
+        }
 
       const combinedData: TeamMember[] = [];
 
