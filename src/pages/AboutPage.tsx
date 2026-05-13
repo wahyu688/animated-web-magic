@@ -25,13 +25,13 @@ const teamMembers = [
     name: "Victor Jonathan Harianto",
     role: "System Analyst",
     NIM: "2802447310",
-    image: "/team/victor.jpeg"
+    image: "/team/jonathan.jpeg"
   },
   {
     name: "Jeff Adriel Panjaitan",
     role: "Quality Assurance",
     NIM: "28xxxxxxxx",
-    image: "/team/jeff.jpe  g"
+    image: "/team/jeff.jpeg"
   },
 ];
 
