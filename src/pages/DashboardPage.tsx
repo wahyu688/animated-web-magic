@@ -121,7 +121,7 @@ export default function DashboardPage() {
   }, [navigate]);
 
   const fetchDashboardInfo = useCallback(async (showLoading = false) => {
-    if (!companyId) return;
+    if (!companyId) navigate("/pricing");
     const requestId = ++fetchRequestIdRef.current;
 
     try {

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { motion } from "framer-motion";
 import { Check } from "lucide-react";
 import { Link } from "react-router-dom";
+import { supabase } from "@/lib/supabase";
+import { useNavigate } from "react-router-dom";
 
 const plans = [
   {
@@ -37,8 +39,91 @@ const faqs = [
   { q: "Is there a free trial?", a: "Yes! All plans include a 14-day free trial. No credit card required." },
 ];
 
+
 export default function PricingPage() {
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
+
+  
+  const navigate = useNavigate();
+
+  const handleSubscribe = async (planName: string) => {
+    try {
+
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+
+      if (!session?.user) {
+        navigate("/login");
+        return;
+      }
+
+      const user = session.user;
+
+      // cek apakah sudah punya company
+      const { data: existingProfile } = await supabase
+        .from("user_profiles")
+        .select("company_id")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (existingProfile?.company_id) {
+        navigate("/dashboard");
+        return;
+      }
+
+      // create company
+      const { data: company, error: companyError } = await supabase
+        .from("companies")
+        .insert({
+          name: `${user.user_metadata?.first_name || "My"} Workspace`,
+        })
+        .select()
+        .single();
+
+      if (companyError) throw companyError;
+
+      // insert company member
+      const { error: memberError } = await supabase
+        .from("company_members")
+        .insert({
+          company_id: company.id,
+          user_id: user.id,
+          role: "owner",
+          status: "active",
+        });
+
+      if (memberError) throw memberError;
+
+      // update profile
+      const { error: profileError } = await supabase
+        .from("user_profiles")
+        .update({
+          company_id: company.id,
+          role: "owner",
+        })
+        .eq("id", user.id);
+
+      if (profileError) throw profileError;
+
+      // create subscription
+      const { error: subscriptionError } = await supabase
+        .from("subscriptions")
+        .insert({
+          company_id: company.id,
+          plan: planName.toLowerCase(),
+          status: "active",
+          billing_cycle: billing,
+        });
+
+      if (subscriptionError) throw subscriptionError;
+
+      navigate("/dashboard");
+
+    } catch (error) {
+      console.error("Subscribe error:", error);
+    }
+  };
 
   return (
       <div className="min-h-screen bg-[#fcfcfd] text-slate-900">          
@@ -99,7 +184,7 @@ export default function PricingPage() {
         </div>
       </nav>
 
-<       div className="px-6 lg:px-10 pb-10 pt-36 max-w-6xl mx-auto">        
+      <div className="px-6 lg:px-10 pb-10 pt-36 max-w-6xl mx-auto">        
         {/* Header */}
         <div className="text-center mb-12">
           <motion.h1
@@ -178,19 +263,16 @@ export default function PricingPage() {
                 ))}
               </div>
               
-              <Link to="/login">
-                <motion.button
+              <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
+                  onClick={() => handleSubscribe(plan.name)}
                   className={`w-full py-4 px-6 rounded-xl font-bold text-sm transition-all duration-200 ${
                     plan.highlighted
                       ? "bg-primary text-primary-foreground shadow-primary-glow hover:opacity-90"
-                      : "bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground"
-                  }`}
-                >
+                      : "bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground"}`}>
                   {plan.cta}
-                </motion.button>
-              </Link>
+              </motion.button>
 
               {plan.highlighted && (
                 <p className="text-center text-[11px] text-muted-foreground mt-3">No credit card required for 14-day trial</p>
