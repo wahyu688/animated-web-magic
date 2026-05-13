@@ -16,6 +16,8 @@ import ActivityPage from "./pages/ActivityPage";
 import SettingsPage from "./pages/SettingsPage";
 import FinancialPage from "./pages/FinancialPage";
 
+import InvitationPopup from "./components/invitations/InvitationPopup";
+
 // --- LAYOUT ---
 // Pastikan path ini sesuai dengan tempat Anda menyimpan ProtectedLayout.tsx
 import ProtectedLayout from "./components/layout/ProtectedLayout"; 
@@ -23,6 +25,9 @@ import ProtectedLayout from "./components/layout/ProtectedLayout";
 export default function App() {
   return (
     <Router>
+
+    <InvitationPopup/>
+
       <Routes>
         {/* ============================== */}
         {/* RUTE PUBLIK (Bisa diakses tanpa login) */}
