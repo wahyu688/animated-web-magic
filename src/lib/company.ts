@@ -11,7 +11,7 @@ export async function getCurrentCompany(): Promise<CompanyContext | null> {
   if (!user) return null;
 
   const { data, error } = await supabase
-    .from("user_profiles")
+    .from("profiles")
     .select("company_id")
     .eq("id", user.id)
     .maybeSingle();
