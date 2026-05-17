@@ -12,7 +12,7 @@ const teamMembers = [
   {
     name: "Leandra Belva Varissa Perwira Negara",
     role: "Frontend Developer",
-    NIM: "28xxxxxxxx",
+    NIM: "2802499876",
     image: "/team/leandra.jpeg"
   },
   {
