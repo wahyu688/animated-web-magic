@@ -159,21 +159,23 @@ export default function TeamPage() {
         );
 
         console.log("USER IDS", userIds);
+        const profiles: UserProfileRow[] = Array.isArray(profileRows) ? profileRows : [];
+        console.log("PROFILE RESPONSE", profiles);
         console.log("PROFILE ROWS", profileRows);
         console.log("PROFILE ERROR", profileError);
         console.log(
           "PROFILE IDS",
-          profileRows?.map((p) => ({
-            id: p.id,
-            email: p.email,
-          }))
+          profiles.map((p) => ({ id: p.id, email: p.email, idType: typeof p.id }))
+        );
+
+        console.log(
+          "MEMBER IDS TYPES",
+          activeMembers.map((m) => ({ user_id: m.user_id, type: typeof m.user_id }))
         );
 
         if (profileError) throw profileError;
 
-        profileMap = new Map<string, UserProfileRow>(
-          (Array.isArray(profileRows) ? profileRows : []).map((profile) => [profile.id, profile])
-        );
+        profileMap = new Map<string, UserProfileRow>(profiles.map((profile) => [profile.id, profile]));
 
         console.log("PROFILE MAP KEYS", Array.from(profileMap.keys()));
         console.log("PROFILE MAP", profileMap);
