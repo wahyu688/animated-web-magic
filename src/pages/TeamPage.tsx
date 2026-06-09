@@ -179,6 +179,8 @@ export default function TeamPage() {
 
         console.log("PROFILE MAP KEYS", Array.from(profileMap.keys()));
         console.log("PROFILE MAP", profileMap);
+        console.log("PROFILE MAP SIZE", profileMap.size);
+        console.log("PROFILE MAP ENTRIES", Array.from(profileMap.entries()).map(([key, val]) => ({ key, id: val.id, email: val.email, name: `${val.first_name} ${val.last_name}` })));
       }
 
       const { data: pendingInvites, error: invitesError } = await withSupabaseTimeout(
@@ -197,16 +199,26 @@ export default function TeamPage() {
 
       const activeData: TeamMember[] = activeMembers
         .map((member): TeamMember | null => {
+          console.log("=== MAPPING ACTIVE MEMBER ===");
+          console.log("ACTIVE MEMBER USER ID", member.user_id);
+          console.log("LOOKUP IN PROFILE MAP", profileMap.get(member.user_id));
+          
           const profile = profileMap.get(member.user_id);
-
-          console.log("ACTIVE MEMBER", member.user_id);
-          console.log("PROFILE LOOKUP", profile);
+          
+          console.log("PROFILE FOUND", profile);
+          console.log("PROFILE KEYS", profile ? Object.keys(profile) : null);
+          console.log("PROFILE FIRST NAME", profile?.first_name);
+          console.log("PROFILE LAST NAME", profile?.last_name);
+          console.log("PROFILE EMAIL", profile?.email);
 
           const fullName = profile
             ? `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || profile.email || "Unknown User"
             : member.user_id;
 
-          return {
+          console.log("FULL NAME RESULT", fullName);
+          console.log("EMAIL RESULT", profile?.email ?? "");
+
+          const mappedMember: TeamMember = {
             id: member.id,
             userId: member.user_id,
             name: fullName,
@@ -222,6 +234,10 @@ export default function TeamPage() {
             color: colorFor(profile?.id ?? "unknown"),
             is_invite: false,
           };
+
+          console.log("FINAL ACTIVE MEMBER", mappedMember);
+
+          return mappedMember;
         })
         .filter((item): item is TeamMember => item !== null);
 
