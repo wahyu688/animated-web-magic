@@ -26,13 +26,21 @@ export function useCompany() {
       }
 
       setCompanyError(null);
+      console.log("=== USE COMPANY LOAD START ===");
+      console.log("AUTH USER FROM CONTEXT", user?.id);
+      console.log("AUTH LOADING", isAuthLoading);
       const company = await getCurrentCompany(user);
+
+      console.log("COMPANY RESULT FROM GET CURRENT COMPANY", company);
+      console.log("COMPANY ID RETURNED", company?.companyId);
+      console.log("USER ID RETURNED", company?.userId);
 
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       const nextCompanyId = company?.companyId ?? null;
       companyIdRef.current = nextCompanyId;
       setCompanyId(nextCompanyId);
       setUserId(company?.userId ?? null);
+      console.log("COMPANY STATE SET TO", nextCompanyId);
     } catch (error) {
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       console.error("Company context error:", error);

@@ -28,6 +28,13 @@ export function clearCompanyCache() {
 
 
 async function acceptPendingInvitation(user: User): Promise<CompanyContext | null> {
+  const { data: authSession } = await supabase.auth.getSession();
+  const actualAuthUserId = authSession?.session?.user?.id;
+  console.log("=== ACCEPT PENDING INVITATION START ===");
+  console.log("PARAM USER ID", user.id);
+  console.log("ACTUAL AUTH USER ID", actualAuthUserId);
+  console.log("IDS MATCH", user.id === actualAuthUserId);
+
   const email = user.email?.toLowerCase();
   if (!email) return null;
 
@@ -49,8 +56,8 @@ async function acceptPendingInvitation(user: User): Promise<CompanyContext | nul
   const role = "member";
   const payload = { company_id: invitation.company_id, user_id: user.id, role, status: "active" };
   console.log("COMPANY CONTEXT FLOW START: acceptPendingInvitation");
-  console.log("CURRENT USER", user.id);
-  console.log("CURRENT COMPANY", invitation.company_id);
+  console.log("LOOKUP USER ID", user.id);
+  console.log("LOOKUP COMPANY ID", invitation.company_id);
   console.log("ATTEMPTING COMPANY MEMBER UPSERT", payload);
 
   const { data: existingMember, error: existingMemberError } = await withSupabaseTimeout(
@@ -118,6 +125,13 @@ async function acceptPendingInvitation(user: User): Promise<CompanyContext | nul
 }
 
 async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
+  const { data: authSession } = await supabase.auth.getSession();
+  const actualAuthUserId = authSession?.session?.user?.id;
+  console.log("=== LOAD CURRENT COMPANY START ===");
+  console.log("PARAM USER ID", user.id);
+  console.log("ACTUAL AUTH USER ID", actualAuthUserId);
+  console.log("IDS MATCH", user.id === actualAuthUserId);
+
   const { data: membership, error: membershipError } = await withSupabaseTimeout(
     supabase
       .from("company_members")
@@ -130,7 +144,14 @@ async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
     "company active membership"
   );
 
-  if (membershipError) throw membershipError;
+  console.log("FIRST LOOKUP USER ID", user.id);
+  console.log("FIRST LOOKUP RESULT", membership);
+  console.log("FIRST LOOKUP ERROR", membershipError);
+
+  if (membershipError) {
+    console.error("FIRST LOOKUP FAILED (RLS?)", membershipError);
+    throw membershipError;
+  }
 
   if (membership?.company_id) {
     await withSupabaseTimeout(
@@ -169,9 +190,10 @@ async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
 
   const role = profile.role ?? "member";
   const payload = { company_id: profile.company_id, user_id: user.id, role, status: "active" };
-  console.log("COMPANY CONTEXT FLOW: loadCurrentCompany repair");
-  console.log("CURRENT USER", user.id);
-  console.log("CURRENT COMPANY", profile.company_id);
+  console.log("=== LOAD CURRENT COMPANY REPAIR ===");
+  console.log("PROFILE DATA FROM USER_PROFILES", profile);
+  console.log("REPAIR LOOKUP USER ID", user.id);
+  console.log("REPAIR LOOKUP COMPANY ID", profile.company_id);
   console.log("ATTEMPTING COMPANY MEMBER UPSERT", payload);
 
   const { data: repairedMember, error: repairedMemberError } = await withSupabaseTimeout(
@@ -184,8 +206,10 @@ async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
     "company repaired member lookup"
   );
 
-  console.log("EXISTING MEMBER QUERY RESULT", repairedMember);
-  console.log("EXISTING MEMBER QUERY ERROR", repairedMemberError);
+  console.log("REPAIR LOOKUP USER ID (VERIFIED)", user.id);
+  console.log("REPAIR LOOKUP COMPANY ID (VERIFIED)", profile.company_id);
+  console.log("REPAIR LOOKUP RESULT", repairedMember);
+  console.log("REPAIR LOOKUP ERROR", repairedMemberError);
 
   if (repairedMemberError) {
     console.error("MEMBERSHIP LOOKUP FAILED (RLS?)", repairedMemberError);
