@@ -160,8 +160,14 @@ export default function TeamPage() {
 
         console.log("USER IDS", userIds);
         console.log("PROFILE ROWS", profileRows);
-        console.log("PROFILE ROWS LENGTH", profileRows?.length);
         console.log("PROFILE ERROR", profileError);
+        console.log(
+          "PROFILE IDS",
+          profileRows?.map((p) => ({
+            id: p.id,
+            email: p.email,
+          }))
+        );
 
         if (profileError) throw profileError;
 
@@ -169,6 +175,7 @@ export default function TeamPage() {
           (Array.isArray(profileRows) ? profileRows : []).map((profile) => [profile.id, profile])
         );
 
+        console.log("PROFILE MAP KEYS", Array.from(profileMap.keys()));
         console.log("PROFILE MAP", profileMap);
       }
 
