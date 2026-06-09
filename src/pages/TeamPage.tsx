@@ -25,6 +25,7 @@ interface TeamMember {
 
 interface UserProfileRow {
   id: string;
+  user_id?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   email?: string | null;
@@ -150,22 +151,43 @@ export default function TeamPage() {
       let profileMap = new Map<string, UserProfileRow>();
 
       if (userIds.length > 0) {
-        const { data: profileRows, error: profileError } = await withSupabaseTimeout(
+        const { data: profileRowsById, error: profileErrorById } = await withSupabaseTimeout(
           supabase
             .from("user_profiles")
-            .select("id, first_name, last_name, email, role, company_id, created_at")
+            .select("id, user_id, first_name, last_name, email, role, company_id, created_at")
             .in("id", userIds),
-          "team user profiles"
+          "team user profiles by id"
         );
 
-        console.log("PROFILES RAW", profileRows);
-        console.log("PROFILE QUERY ERROR", profileError);
+        console.log("PROFILES BY ID RAW", profileRowsById);
+        console.log("PROFILES BY ID ERROR", profileErrorById);
 
-        if (profileError) throw profileError;
+        if (profileErrorById) throw profileErrorById;
 
-        profileMap = new Map<string, UserProfileRow>(
-          (Array.isArray(profileRows) ? profileRows : []).map((profile) => [profile.id, profile])
-        );
+        let profileRows = Array.isArray(profileRowsById) ? profileRowsById : [];
+        const resolvedIds = new Set(profileRows.flatMap((profile) => [profile.id, profile.user_id].filter(Boolean) as string[]));
+        const missingIds = userIds.filter((id) => !resolvedIds.has(id));
+
+        if (missingIds.length > 0) {
+          const { data: profileRowsByUserId, error: profileErrorByUserId } = await withSupabaseTimeout(
+            supabase
+              .from("user_profiles")
+              .select("id, user_id, first_name, last_name, email, role, company_id, created_at")
+              .in("user_id", missingIds),
+            "team user profiles by user_id"
+          );
+
+          console.log("PROFILES BY USER_ID RAW", profileRowsByUserId);
+          console.log("PROFILES BY USER_ID ERROR", profileErrorByUserId);
+
+          if (profileErrorByUserId) throw profileErrorByUserId;
+          profileRows = profileRows.concat(Array.isArray(profileRowsByUserId) ? profileRowsByUserId : []);
+        }
+
+        profileRows.forEach((profile) => {
+          if (profile.id) profileMap.set(profile.id, profile);
+          if (profile.user_id) profileMap.set(profile.user_id, profile);
+        });
 
         console.log("PROFILE MAP KEYS", Array.from(profileMap.keys()));
       }
