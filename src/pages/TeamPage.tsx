@@ -121,7 +121,6 @@ export default function TeamPage() {
     try {
       if (showLoading) setIsLoading(true);
 
-      // 1. Ambil Karyawan Aktif dari company_members, lalu join ke user_profiles.
       const { data: activeMembers, error: activeError } = await withSupabaseTimeout(
         supabase
           .from("company_members")
@@ -137,60 +136,105 @@ export default function TeamPage() {
           .eq("status", "active"),
         "team active members"
       );
-      
-      // 2. Ambil Undangan Pending
+
+      console.log("[TeamPage] raw activeMembers:", activeMembers, "activeError:", activeError);
+
+      if (activeError) throw activeError;
+
+      let memberRows: CompanyMemberRow[] = Array.isArray(activeMembers) ? (activeMembers as CompanyMemberRow[]) : [];
+      const hasNestedProfiles = memberRows.some((member) => {
+        const userProfiles = member?.user_profiles;
+        return Boolean(
+          userProfiles &&
+          ((Array.isArray(userProfiles) && userProfiles.length > 0) || (!Array.isArray(userProfiles) && Object.keys(userProfiles).length > 0))
+        );
+      });
+
+      if (memberRows.length > 0 && !hasNestedProfiles) {
+        const userIds = Array.from(
+          new Set(memberRows.map((member) => member.user_id).filter(Boolean))
+        ) as string[];
+
+        console.warn("[TeamPage] nested user_profiles did not return data; falling back to separate profile query", { userIds });
+
+        if (userIds.length > 0) {
+          const { data: profileRows, error: profileError } = await withSupabaseTimeout(
+            supabase
+              .from("user_profiles")
+              .select("id, first_name, last_name, email, role, company_id, created_at")
+              .in("id", userIds),
+            "team user profiles fallback"
+          );
+
+          if (profileError) throw profileError;
+
+          const profileMap = new Map<string, UserProfileRow>(
+            (Array.isArray(profileRows) ? profileRows : []).map((profile) => [profile.id, profile])
+          );
+
+          memberRows = memberRows.map((member) => ({
+            ...member,
+            user_profiles: profileMap.get(member.user_id) ?? null,
+          }));
+        }
+      }
+
       const { data: pendingInvites, error: invitesError } = await withSupabaseTimeout(
-        supabase.from('invitations').select('*').eq('company_id', companyId).eq('status', 'pending'),
+        supabase.from("invitations").select("*").eq("company_id", companyId).eq("status", "pending"),
         "team pending invitations"
       );
 
-      if (activeError || invitesError) throw activeError || invitesError;
-      if (invitesError) {
-          console.error(invitesError);
-          throw invitesError;
-        }
+      if (invitesError) throw invitesError;
 
       const combinedData: TeamMember[] = [];
 
-        if (activeMembers) {
-          (activeMembers as CompanyMemberRow[]).forEach((member) => {
-            const profile = Array.isArray(member.user_profiles)
-              ? member.user_profiles[0]
-              : member.user_profiles;
-            if (!profile) return;
-
-            const fullName = `${profile.first_name || ''} ${profile.last_name || ''}`.trim() || profile.email || 'Unknown User';
-            combinedData.push({
-              id: member.id,
-              userId: member.user_id,
-              name: fullName,
-              email: profile.email || "No Email",
-              role: toUiRole(member.role ?? profile.role),
-              status: "Active",
-              date_added: new Date(member.created_at || profile.created_at || Date.now()).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
-              initials: fullName.substring(0, 2).toUpperCase(),
-              color: colorFor(profile.id),
-              is_invite: false
-            });
-          });
+      memberRows.forEach((member) => {
+        const profile = Array.isArray(member.user_profiles)
+          ? member.user_profiles[0]
+          : member.user_profiles;
+        if (!profile) {
+          console.warn("[TeamPage] skipping company_member because profile is missing", member);
+          return;
         }
 
-        // Format Undangan Pending
-        if (pendingInvites) {
-          (pendingInvites as InvitationRow[]).forEach((inv) => {
-            combinedData.push({
-              id: inv.id,
-              name: "Pending Invite",
-              email: inv.email,
-              role: "Viewer", 
-              status: "Pending",
-              date_added: new Date(inv.created_at).toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' }),
-              initials: "@",
-              color: "bg-warning",
-              is_invite: true
-            });
+        const fullName = `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || profile.email || "Unknown User";
+        combinedData.push({
+          id: member.id,
+          userId: member.user_id,
+          name: fullName,
+          email: profile.email || "No Email",
+          role: toUiRole(member.role ?? profile.role),
+          status: "Active",
+          date_added: new Date(member.created_at || profile.created_at || Date.now()).toLocaleDateString("en-US", {
+            month: "short",
+            day: "2-digit",
+            year: "numeric",
+          }),
+          initials: fullName.substring(0, 2).toUpperCase(),
+          color: colorFor(profile.id),
+          is_invite: false,
+        });
+      });
+
+      if (pendingInvites) {
+        (pendingInvites as InvitationRow[]).forEach((inv) => {
+          combinedData.push({
+            id: inv.id,
+            name: "Pending Invite",
+            email: inv.email,
+            role: "Viewer",
+            status: "Pending",
+            date_added: new Date(inv.created_at).toLocaleDateString("en-US", {
+              month: "short",
+              day: "2-digit",
+              year: "numeric",
+            }),
+            initials: "@",
+            color: "bg-warning",
+            is_invite: true,
           });
-        }
+        });
+      }
 
       if (isMountedRef.current) setMembers(combinedData);
     } catch (error) {
