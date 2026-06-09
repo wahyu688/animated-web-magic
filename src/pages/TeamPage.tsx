@@ -121,120 +121,113 @@ export default function TeamPage() {
     try {
       if (showLoading) setIsLoading(true);
 
-      const { data: activeMembers, error: activeError } = await withSupabaseTimeout(
+      const { data: companyMembers, error: companyMembersError } = await withSupabaseTimeout(
         supabase
           .from("company_members")
-          .select(`
-            id,
-            user_id,
-            role,
-            status,
-            created_at,
-            user_profiles (*)
-          `)
+          .select("id, user_id, role, status, created_at")
           .eq("company_id", companyId)
           .eq("status", "active"),
         "team active members"
       );
 
-      console.log("[TeamPage] raw activeMembers:", activeMembers, "activeError:", activeError);
+      console.log("[TeamPage] raw company_members:", companyMembers, "companyMembersError:", companyMembersError);
 
-      if (activeError) throw activeError;
+      if (companyMembersError) throw companyMembersError;
 
-      let memberRows: CompanyMemberRow[] = Array.isArray(activeMembers) ? (activeMembers as CompanyMemberRow[]) : [];
-      const hasNestedProfiles = memberRows.some((member) => {
-        const userProfiles = member?.user_profiles;
-        return Boolean(
-          userProfiles &&
-          ((Array.isArray(userProfiles) && userProfiles.length > 0) || (!Array.isArray(userProfiles) && Object.keys(userProfiles).length > 0))
+      const activeMembers: CompanyMemberRow[] = Array.isArray(companyMembers)
+        ? (companyMembers as CompanyMemberRow[])
+        : [];
+
+      const userIds = Array.from(
+        new Set(
+          activeMembers
+            .map((member) => member.user_id)
+            .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
+        )
+      );
+
+      let profileMap = new Map<string, UserProfileRow>();
+
+      if (userIds.length > 0) {
+        const { data: profileRows, error: profileError } = await withSupabaseTimeout(
+          supabase
+            .from("user_profiles")
+            .select("id, first_name, last_name, email, role, company_id, created_at")
+            .in("id", userIds),
+          "team user profiles"
         );
-      });
 
-      if (memberRows.length > 0 && !hasNestedProfiles) {
-        const userIds = Array.from(
-          new Set(memberRows.map((member) => member.user_id).filter(Boolean))
-        ) as string[];
+        console.log("[TeamPage] raw user_profiles:", profileRows, "profileError:", profileError);
 
-        console.warn("[TeamPage] nested user_profiles did not return data; falling back to separate profile query", { userIds });
+        if (profileError) throw profileError;
 
-        if (userIds.length > 0) {
-          const { data: profileRows, error: profileError } = await withSupabaseTimeout(
-            supabase
-              .from("user_profiles")
-              .select("id, first_name, last_name, email, role, company_id, created_at")
-              .in("id", userIds),
-            "team user profiles fallback"
-          );
-
-          if (profileError) throw profileError;
-
-          const profileMap = new Map<string, UserProfileRow>(
-            (Array.isArray(profileRows) ? profileRows : []).map((profile) => [profile.id, profile])
-          );
-
-          memberRows = memberRows.map((member) => ({
-            ...member,
-            user_profiles: profileMap.get(member.user_id) ?? null,
-          }));
-        }
+        profileMap = new Map<string, UserProfileRow>(
+          (Array.isArray(profileRows) ? profileRows : []).map((profile) => [profile.id, profile])
+        );
       }
 
       const { data: pendingInvites, error: invitesError } = await withSupabaseTimeout(
-        supabase.from("invitations").select("*").eq("company_id", companyId).eq("status", "pending"),
+        supabase
+          .from("invitations")
+          .select("*")
+          .eq("company_id", companyId)
+          .eq("status", "pending"),
         "team pending invitations"
       );
 
+      console.log("[TeamPage] raw invitations:", pendingInvites, "invitesError:", invitesError);
+
       if (invitesError) throw invitesError;
 
-      const combinedData: TeamMember[] = [];
+      const activeData: TeamMember[] = activeMembers
+        .map((member): TeamMember | null => {
+          const profile = profileMap.get(member.user_id);
 
-      memberRows.forEach((member) => {
-        const profile = Array.isArray(member.user_profiles)
-          ? member.user_profiles[0]
-          : member.user_profiles;
-        if (!profile) {
-          console.warn("[TeamPage] skipping company_member because profile is missing", member);
-          return;
-        }
+          if (!profile) {
+            console.warn("[TeamPage] missing profile for active company_member", member);
+            return null;
+          }
 
-        const fullName = `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || profile.email || "Unknown User";
-        combinedData.push({
-          id: member.id,
-          userId: member.user_id,
-          name: fullName,
-          email: profile.email || "No Email",
-          role: toUiRole(member.role ?? profile.role),
-          status: "Active",
-          date_added: new Date(member.created_at || profile.created_at || Date.now()).toLocaleDateString("en-US", {
-            month: "short",
-            day: "2-digit",
-            year: "numeric",
-          }),
-          initials: fullName.substring(0, 2).toUpperCase(),
-          color: colorFor(profile.id),
-          is_invite: false,
-        });
-      });
+          const fullName = `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || profile.email || "Unknown User";
 
-      if (pendingInvites) {
-        (pendingInvites as InvitationRow[]).forEach((inv) => {
-          combinedData.push({
-            id: inv.id,
-            name: "Pending Invite",
-            email: inv.email,
-            role: "Viewer",
-            status: "Pending",
-            date_added: new Date(inv.created_at).toLocaleDateString("en-US", {
+          return {
+            id: member.id,
+            userId: member.user_id,
+            name: fullName,
+            email: profile.email || "No Email",
+            role: toUiRole(member.role ?? profile.role),
+            status: "Active",
+            date_added: new Date(member.created_at || profile.created_at || Date.now()).toLocaleDateString("en-US", {
               month: "short",
               day: "2-digit",
               year: "numeric",
             }),
-            initials: "@",
-            color: "bg-warning",
-            is_invite: true,
-          });
-        });
-      }
+            initials: fullName.substring(0, 2).toUpperCase(),
+            color: colorFor(profile.id),
+            is_invite: false,
+          };
+        })
+        .filter((item): item is TeamMember => item !== null);
+
+      const pendingData: TeamMember[] = (Array.isArray(pendingInvites) ? pendingInvites : []).map((inv) => ({
+        id: inv.id,
+        name: "Pending Invite",
+        email: inv.email,
+        role: "Viewer",
+        status: "Pending",
+        date_added: new Date(inv.created_at).toLocaleDateString("en-US", {
+          month: "short",
+          day: "2-digit",
+          year: "numeric",
+        }),
+        initials: "@",
+        color: "bg-warning",
+        is_invite: true,
+      }));
+
+      const combinedData = [...activeData, ...pendingData];
+
+      console.log("[TeamPage] final merged members:", combinedData);
 
       if (isMountedRef.current) setMembers(combinedData);
     } catch (error) {
