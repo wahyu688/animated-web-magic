@@ -158,13 +158,16 @@ export default function TeamPage() {
           "team user profiles"
         );
 
-        console.log("[TeamPage] raw user_profiles:", profileRows, "profileError:", profileError);
+        console.log("PROFILES RAW", profileRows);
+        console.log("PROFILE QUERY ERROR", profileError);
 
         if (profileError) throw profileError;
 
         profileMap = new Map<string, UserProfileRow>(
           (Array.isArray(profileRows) ? profileRows : []).map((profile) => [profile.id, profile])
         );
+
+        console.log("PROFILE MAP KEYS", Array.from(profileMap.keys()));
       }
 
       const { data: pendingInvites, error: invitesError } = await withSupabaseTimeout(
@@ -185,27 +188,27 @@ export default function TeamPage() {
         .map((member): TeamMember | null => {
           const profile = profileMap.get(member.user_id);
 
-          if (!profile) {
-            console.warn("[TeamPage] missing profile for active company_member", member);
-            return null;
-          }
+          console.log("LOOKUP USER ID", member.user_id);
+          console.log("LOOKUP RESULT", profile);
 
-          const fullName = `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || profile.email || "Unknown User";
+          const fullName = profile
+            ? `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || profile.email || "Unknown User"
+            : member.user_id;
 
           return {
             id: member.id,
             userId: member.user_id,
             name: fullName,
-            email: profile.email || "No Email",
-            role: toUiRole(member.role ?? profile.role),
+            email: profile?.email ?? "",
+            role: toUiRole(member.role ?? profile?.role),
             status: "Active",
-            date_added: new Date(member.created_at || profile.created_at || Date.now()).toLocaleDateString("en-US", {
+            date_added: new Date(member.created_at || profile?.created_at || Date.now()).toLocaleDateString("en-US", {
               month: "short",
               day: "2-digit",
               year: "numeric",
             }),
             initials: fullName.substring(0, 2).toUpperCase(),
-            color: colorFor(profile.id),
+            color: colorFor(profile?.id ?? member.user_id),
             is_invite: false,
           };
         })
