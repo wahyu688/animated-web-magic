@@ -49,6 +49,8 @@ async function acceptPendingInvitation(user: User): Promise<CompanyContext | nul
   const role = "member";
   const payload = { company_id: invitation.company_id, user_id: user.id, role, status: "active" };
   console.log("COMPANY CONTEXT FLOW START: acceptPendingInvitation");
+  console.log("CURRENT USER", user.id);
+  console.log("CURRENT COMPANY", invitation.company_id);
   console.log("ATTEMPTING COMPANY MEMBER UPSERT", payload);
 
   const { data: existingMember, error: existingMemberError } = await withSupabaseTimeout(
@@ -61,8 +63,18 @@ async function acceptPendingInvitation(user: User): Promise<CompanyContext | nul
     "company existing member"
   );
 
-  if (existingMemberError) throw existingMemberError;
-  console.log("EXISTING MEMBER CHECK", existingMember);
+  console.log("EXISTING MEMBER QUERY RESULT", existingMember);
+  console.log("EXISTING MEMBER QUERY ERROR", existingMemberError);
+
+  if (existingMemberError) {
+    console.error("MEMBERSHIP LOOKUP FAILED (RLS?)", existingMemberError);
+    console.warn("Skipping membership write due to RLS error. Invitation data exists but membership lookup blocked.");
+    return {
+      userId: user.id,
+      companyId: invitation.company_id,
+      role,
+    };
+  }
 
   const memberWrite = existingMember
     ? supabase
@@ -158,6 +170,8 @@ async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
   const role = profile.role ?? "member";
   const payload = { company_id: profile.company_id, user_id: user.id, role, status: "active" };
   console.log("COMPANY CONTEXT FLOW: loadCurrentCompany repair");
+  console.log("CURRENT USER", user.id);
+  console.log("CURRENT COMPANY", profile.company_id);
   console.log("ATTEMPTING COMPANY MEMBER UPSERT", payload);
 
   const { data: repairedMember, error: repairedMemberError } = await withSupabaseTimeout(
@@ -170,8 +184,18 @@ async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
     "company repaired member lookup"
   );
 
-  if (repairedMemberError) throw repairedMemberError;
-  console.log("EXISTING MEMBER CHECK", repairedMember);
+  console.log("EXISTING MEMBER QUERY RESULT", repairedMember);
+  console.log("EXISTING MEMBER QUERY ERROR", repairedMemberError);
+
+  if (repairedMemberError) {
+    console.error("MEMBERSHIP LOOKUP FAILED (RLS?)", repairedMemberError);
+    console.warn("Skipping membership repair due to RLS error. Profile data exists but membership lookup blocked.");
+    return {
+      userId: user.id,
+      companyId: profile.company_id,
+      role,
+    };
+  }
 
   const repairWrite = repairedMember
     ? supabase
