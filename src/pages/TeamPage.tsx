@@ -130,7 +130,8 @@ export default function TeamPage() {
         "team active members"
       );
 
-      console.log("[TeamPage] raw company_members:", companyMembers, "companyMembersError:", companyMembersError);
+      console.log("COMPANY MEMBERS RAW", companyMembers);
+      console.log("COMPANY MEMBERS ERROR", companyMembersError);
 
       if (companyMembersError) throw companyMembersError;
 
@@ -175,7 +176,8 @@ export default function TeamPage() {
         "team pending invitations"
       );
 
-      console.log("[TeamPage] raw invitations:", pendingInvites, "invitesError:", invitesError);
+      console.log("INVITATIONS RAW", pendingInvites);
+      console.log("INVITATIONS ERROR", invitesError);
 
       if (invitesError) throw invitesError;
 
@@ -225,9 +227,12 @@ export default function TeamPage() {
         is_invite: true,
       }));
 
+      console.log("ACTIVE MEMBERS", activeData);
+      console.log("PENDING INVITES", pendingData);
+
       const combinedData = [...activeData, ...pendingData];
 
-      console.log("[TeamPage] final merged members:", combinedData);
+      console.log("FINAL MEMBERS", combinedData);
 
       if (isMountedRef.current) setMembers(combinedData);
     } catch (error) {
@@ -268,16 +273,23 @@ export default function TeamPage() {
 
   // --- FILTER & PAGINATION LOGIC ---
   const filtered = useMemo(() => {
-    return members.filter((m) => {
+    const filteredMembers = members.filter((m) => {
       const matchSearch = searchQuery === "" || m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.email.toLowerCase().includes(searchQuery.toLowerCase());
       const matchRole = roleFilter === "All Roles" || m.role === roleFilter;
       const matchStatus = statusFilter === "Status: All" || m.status === statusFilter.replace("Status: ", "");
       return matchSearch && matchRole && matchStatus;
     });
+
+    console.log("FILTER INPUT", members);
+    console.log("FILTER OUTPUT", filteredMembers);
+
+    return filteredMembers;
   }, [members, searchQuery, roleFilter, statusFilter]);
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
   const paginatedMembers = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+
+  console.log("PAGINATED MEMBERS", paginatedMembers);
 
   const handleFilterChange = (setter: React.Dispatch<React.SetStateAction<string>>, value: string) => {
     setter(value);
