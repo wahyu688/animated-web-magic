@@ -150,15 +150,19 @@ export default function TeamPage() {
       let profileMap = new Map<string, UserProfileRow>();
 
       if (userIds.length > 0) {
+        const query = supabase
+          .from("user_profiles")
+          .select("id, first_name, last_name, email, role, company_id, created_at")
+          .in("id", userIds);
+
+        console.log("USER IDS SENT TO USER_PROFILES", userIds);
+        console.log("USER PROFILE QUERY", query);
+
         const { data: profileRows, error: profileError } = await withSupabaseTimeout(
-          supabase
-            .from("user_profiles")
-            .select("id, first_name, last_name, email, role, company_id, created_at")
-            .in("id", userIds),
+          query,
           "team user profiles"
         );
 
-        console.log("USER IDS", userIds);
         const profiles: UserProfileRow[] = Array.isArray(profileRows) ? profileRows : [];
         console.log("PROFILE RESPONSE", profiles);
         console.log("PROFILE ROWS", profileRows);
