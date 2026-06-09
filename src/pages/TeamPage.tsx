@@ -25,7 +25,6 @@ interface TeamMember {
 
 interface UserProfileRow {
   id: string;
-  user_id?: string | null;
   first_name?: string | null;
   last_name?: string | null;
   email?: string | null;
@@ -151,45 +150,26 @@ export default function TeamPage() {
       let profileMap = new Map<string, UserProfileRow>();
 
       if (userIds.length > 0) {
-        const { data: profileRowsById, error: profileErrorById } = await withSupabaseTimeout(
+        const { data: profileRows, error: profileError } = await withSupabaseTimeout(
           supabase
             .from("user_profiles")
-            .select("id, user_id, first_name, last_name, email, role, company_id, created_at")
+            .select("id, first_name, last_name, email, role, company_id, created_at")
             .in("id", userIds),
-          "team user profiles by id"
+          "team user profiles"
         );
 
-        console.log("PROFILES BY ID RAW", profileRowsById);
-        console.log("PROFILES BY ID ERROR", profileErrorById);
+        console.log("USER IDS", userIds);
+        console.log("PROFILE ROWS", profileRows);
+        console.log("PROFILE ROWS LENGTH", profileRows?.length);
+        console.log("PROFILE ERROR", profileError);
 
-        if (profileErrorById) throw profileErrorById;
+        if (profileError) throw profileError;
 
-        let profileRows = Array.isArray(profileRowsById) ? profileRowsById : [];
-        const resolvedIds = new Set(profileRows.flatMap((profile) => [profile.id, profile.user_id].filter(Boolean) as string[]));
-        const missingIds = userIds.filter((id) => !resolvedIds.has(id));
+        profileMap = new Map<string, UserProfileRow>(
+          (Array.isArray(profileRows) ? profileRows : []).map((profile) => [profile.id, profile])
+        );
 
-        if (missingIds.length > 0) {
-          const { data: profileRowsByUserId, error: profileErrorByUserId } = await withSupabaseTimeout(
-            supabase
-              .from("user_profiles")
-              .select("id, user_id, first_name, last_name, email, role, company_id, created_at")
-              .in("user_id", missingIds),
-            "team user profiles by user_id"
-          );
-
-          console.log("PROFILES BY USER_ID RAW", profileRowsByUserId);
-          console.log("PROFILES BY USER_ID ERROR", profileErrorByUserId);
-
-          if (profileErrorByUserId) throw profileErrorByUserId;
-          profileRows = profileRows.concat(Array.isArray(profileRowsByUserId) ? profileRowsByUserId : []);
-        }
-
-        profileRows.forEach((profile) => {
-          if (profile.id) profileMap.set(profile.id, profile);
-          if (profile.user_id) profileMap.set(profile.user_id, profile);
-        });
-
-        console.log("PROFILE MAP KEYS", Array.from(profileMap.keys()));
+        console.log("PROFILE MAP", profileMap);
       }
 
       const { data: pendingInvites, error: invitesError } = await withSupabaseTimeout(
@@ -210,8 +190,8 @@ export default function TeamPage() {
         .map((member): TeamMember | null => {
           const profile = profileMap.get(member.user_id);
 
-          console.log("LOOKUP USER ID", member.user_id);
-          console.log("LOOKUP RESULT", profile);
+          console.log("ACTIVE MEMBER", member.user_id);
+          console.log("PROFILE LOOKUP", profile);
 
           const fullName = profile
             ? `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || profile.email || "Unknown User"
@@ -230,7 +210,7 @@ export default function TeamPage() {
               year: "numeric",
             }),
             initials: fullName.substring(0, 2).toUpperCase(),
-            color: colorFor(profile?.id ?? member.user_id),
+            color: colorFor(profile?.id ?? "unknown"),
             is_invite: false,
           };
         })
