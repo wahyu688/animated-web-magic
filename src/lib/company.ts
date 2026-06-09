@@ -47,6 +47,9 @@ async function acceptPendingInvitation(user: User): Promise<CompanyContext | nul
   if (!invitation?.company_id) return null;
 
   const role = "member";
+  const payload = { company_id: invitation.company_id, user_id: user.id, role, status: "active" };
+  console.log("COMPANY CONTEXT FLOW START: acceptPendingInvitation");
+  console.log("ATTEMPTING COMPANY MEMBER UPSERT", payload);
 
   const { data: existingMember, error: existingMemberError } = await withSupabaseTimeout(
     supabase
@@ -59,6 +62,7 @@ async function acceptPendingInvitation(user: User): Promise<CompanyContext | nul
   );
 
   if (existingMemberError) throw existingMemberError;
+  console.log("EXISTING MEMBER CHECK", existingMember);
 
   const memberWrite = existingMember
     ? supabase
@@ -67,7 +71,7 @@ async function acceptPendingInvitation(user: User): Promise<CompanyContext | nul
         .eq("id", existingMember.id)
     : supabase
         .from("company_members")
-        .insert({ company_id: invitation.company_id, user_id: user.id, role, status: "active" });
+        .upsert([payload], { onConflict: "user_id,company_id" });
 
   const { error: memberError } = await withSupabaseTimeout(memberWrite, "company member write");
   if (memberError) throw memberError;
@@ -152,6 +156,10 @@ async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
   if (!profile?.company_id) return null;
 
   const role = profile.role ?? "member";
+  const payload = { company_id: profile.company_id, user_id: user.id, role, status: "active" };
+  console.log("COMPANY CONTEXT FLOW: loadCurrentCompany repair");
+  console.log("ATTEMPTING COMPANY MEMBER UPSERT", payload);
+
   const { data: repairedMember, error: repairedMemberError } = await withSupabaseTimeout(
     supabase
       .from("company_members")
@@ -163,6 +171,7 @@ async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
   );
 
   if (repairedMemberError) throw repairedMemberError;
+  console.log("EXISTING MEMBER CHECK", repairedMember);
 
   const repairWrite = repairedMember
     ? supabase
@@ -171,7 +180,7 @@ async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
         .eq("id", repairedMember.id)
     : supabase
         .from("company_members")
-        .insert({ company_id: profile.company_id, user_id: user.id, role, status: "active" });
+        .upsert([payload], { onConflict: "user_id,company_id" });
 
   const { error: repairError } = await withSupabaseTimeout(repairWrite, "company repair write");
 
