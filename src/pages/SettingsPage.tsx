@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { User, Lock, Bell, CreditCard, Puzzle, Camera, Shield, Smartphone, Key, Mail, Monitor, Globe, Slack, Github, Webhook, ChevronRight, Loader2 } from "lucide-react";
+import { User, Lock, Bell, CreditCard, Puzzle, Camera, Shield, Smartphone, Key, Mail, Monitor, Globe, Slack, Github, Webhook, ChevronRight, Loader2, Users, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 import { logActivity } from "../lib/activityLogger";
@@ -15,6 +15,7 @@ const tabs = [
   { icon: CreditCard, label: "Billing" },
   { icon: Puzzle, label: "Integrations" },
   { icon: Monitor, label: "Workspace" },
+  { icon: Users, label: "Team" },
 ];
 
 /* ── Shared Footer ── */
@@ -46,6 +47,7 @@ function GeneralTab({ session }: { session: Session | null }) {
     last_name: "",
     bio: "",
     timezone: "Western Indonesia Time (WIB)",
+    avatar_url: "",
   });
 
   // Fetch data profil saat tab dibuka
@@ -61,6 +63,7 @@ function GeneralTab({ session }: { session: Session | null }) {
             last_name: data.last_name || "",
             bio: data.bio || "",
             timezone: data.timezone || "Western Indonesia Time (WIB)",
+            avatar_url: data.avatar_url || "",
           });
         }
       } catch (err) {
@@ -117,7 +120,7 @@ function GeneralTab({ session }: { session: Session | null }) {
       const publicUrl = urlData.publicUrl;
       const { error: updateError } = await supabase.from('user_profiles').update({ avatar_url: publicUrl }).eq('id', session.user.id);
       if (updateError) throw updateError;
-      setProfile((p) => ({ ...p }));
+      setProfile((p) => ({ ...p, avatar_url: publicUrl }));
       toast({ title: 'Photo uploaded', description: 'Profile photo updated.' });
     } catch (err) {
       console.error('Avatar upload failed:', err);
@@ -136,8 +139,14 @@ function GeneralTab({ session }: { session: Session | null }) {
       <div className="p-6 space-y-8">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
           <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-            <div className="w-20 h-20 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-2xl ring-4 ring-muted transition-transform group-hover:scale-105">
-              {profile.first_name ? profile.first_name[0] : session?.user?.email?.[0].toUpperCase() || "U"}
+            <div className={`w-20 h-20 rounded-full overflow-hidden ${profile.avatar_url ? "border border-border" : "gradient-primary"}`}>
+              {profile.avatar_url ? (
+                <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-primary-foreground font-bold text-2xl ring-4 ring-muted transition-transform group-hover:scale-105">
+                  {profile.first_name ? profile.first_name[0] : session?.user?.email?.[0].toUpperCase() || "U"}
+                </div>
+              )}
             </div>
             <div className="absolute inset-0 flex items-center justify-center bg-foreground/40 rounded-full opacity-0 group-hover:opacity-100 transition-all">
               <Camera className="h-5 w-5 text-primary-foreground" />
@@ -292,7 +301,29 @@ function NotificationsTab({ session }: { session: Session | null }) {
             push_tasks: data.push_notifications ?? true,
             push_comments: data.push_notifications ?? false,
           });
+          return;
         }
+
+        const defaultSettings = {
+          user_id: session.user.id,
+          email_notifications: true,
+          push_notifications: true,
+          marketing_notifications: false,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        const { error: createError } = await supabase.from('user_settings').insert(defaultSettings);
+        if (createError) throw createError;
+
+        setPrefs({
+          email_mentions: true,
+          email_updates: false,
+          email_digest: true,
+          push_mentions: true,
+          push_tasks: true,
+          push_comments: false,
+        });
       } catch (err) {
         console.warn('user_settings load failed, falling back to user_profiles', err);
         const { data } = await supabase.from("user_profiles").select('*').eq('id', session.user.id).maybeSingle();
@@ -325,13 +356,8 @@ function NotificationsTab({ session }: { session: Session | null }) {
         updated_at: new Date().toISOString(),
       };
 
-      // attempt update, else insert
-      const { error: updateError } = await supabase.from('user_settings').update(settings).eq('user_id', session.user.id);
-      if (updateError) {
-        // try insert
-        const { error: insertError } = await supabase.from('user_settings').insert(settings);
-        if (insertError) throw insertError;
-      }
+      const { error } = await supabase.from('user_settings').upsert(settings, { onConflict: 'user_id' });
+      if (error) throw error;
 
       toast({ title: "Preferences saved", description: "Your notification settings have been updated." });
       await logActivity({
@@ -463,6 +489,137 @@ function WorkspaceTab({ companyId, companyRole }: { companyId: string | null; co
   );
 }
 
+function TeamTab({ companyId, companyRole }: { companyId: string | null; companyRole: string | null }) {
+  const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
+  const [members, setMembers] = useState<Array<{
+    id: string;
+    user_id: string;
+    role: string;
+    status: string;
+    created_at: string;
+    profile: { first_name?: string | null; last_name?: string | null; email?: string | null } | null;
+  }>>([]);
+
+  const isManager = companyRole === 'owner' || companyRole === 'admin';
+
+  const loadMembers = async () => {
+    if (!companyId) return;
+    setIsLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('company_members')
+        .select('id,user_id,role,status,created_at,user_profiles(first_name,last_name,email)')
+        .eq('company_id', companyId)
+        .eq('status', 'active');
+      if (error) throw error;
+      setMembers(
+        (data ?? []).map((m: any) => ({
+          id: m.id,
+          user_id: m.user_id,
+          role: m.role,
+          status: m.status,
+          created_at: m.created_at,
+          profile: Array.isArray(m.user_profiles) ? m.user_profiles[0] ?? null : m.user_profiles,
+        }))
+      );
+    } catch (err) {
+      console.error('Load team members failed:', err);
+      toast({ title: 'Error', description: 'Unable to load team members.', variant: 'destructive' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadMembers();
+  }, [companyId]);
+
+  const handleRoleChange = async (memberId: string, newRole: string) => {
+    if (!isManager || !companyId) {
+      toast({ title: 'Not allowed', description: 'Only owner/admin can manage team.', variant: 'destructive' });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.from('company_members').update({ role: newRole }).eq('id', memberId);
+      if (error) throw error;
+      toast({ title: 'Team updated', description: 'Member role has been updated.' });
+      await loadMembers();
+    } catch (err) {
+      console.error('Update role failed:', err);
+      toast({ title: 'Error', description: 'Unable to update member role.', variant: 'destructive' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleRemove = async (memberId: string, userId: string) => {
+    if (!isManager || !companyId) {
+      toast({ title: 'Not allowed', description: 'Only owner/admin can manage team.', variant: 'destructive' });
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.from('company_members').delete().eq('id', memberId);
+      if (error) throw error;
+      await supabase.from('user_profiles').update({ company_id: null }).eq('id', userId);
+      toast({ title: 'Member removed', description: 'The member has been removed from the workspace.' });
+      await loadMembers();
+    } catch (err) {
+      console.error('Remove member failed:', err);
+      toast({ title: 'Error', description: 'Unable to remove member.', variant: 'destructive' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="p-6">
+      <div className="mb-6">
+        <h2 className="text-xl font-semibold text-foreground">Team Settings</h2>
+        <p className="text-sm text-muted-foreground mt-1">Manage team members and roles.</p>
+      </div>
+      {isLoading ? (
+        <div className="rounded-2xl border border-border p-8 text-center text-sm text-muted-foreground">Loading team members...</div>
+      ) : (
+        <div className="space-y-4">
+          {members.length === 0 ? (
+            <div className="rounded-2xl border border-border p-8 text-center text-sm text-muted-foreground">No active team members found.</div>
+          ) : (
+            <div className="space-y-4">
+              {members.map((member) => {
+                const name = member.profile?.first_name || member.profile?.email || 'Unknown';
+                const email = member.profile?.email || 'No email';
+                const isOwner = member.role === 'owner';
+                return (
+                  <div key={member.id} className="rounded-2xl border border-border p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                    <div>
+                      <p className="font-semibold text-foreground">{name}</p>
+                      <p className="text-sm text-muted-foreground">{email}</p>
+                      <p className="text-xs text-muted-foreground mt-1">Joined {new Date(member.created_at).toLocaleDateString()}</p>
+                    </div>
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <select value={member.role} onChange={(e) => handleRoleChange(member.id, e.target.value)} disabled={!isManager || isOwner} className="rounded-xl border border-border bg-card text-foreground text-sm py-2.5 px-3">
+                        <option value="owner">Owner</option>
+                        <option value="admin">Admin</option>
+                        <option value="member">Member</option>
+                      </select>
+                      <button onClick={() => handleRemove(member.id, member.user_id)} disabled={!isManager || isOwner} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-destructive border border-destructive/20 rounded-xl hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed">
+                        <Trash2 className="h-4 w-4" /> Remove
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function BillingTab({ companyId }: { companyId: string | null }) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
@@ -582,13 +739,14 @@ export default function SettingsPage() {
     void loadRole();
   }, [companyId, session?.user?.id]);
 
-  const tabContent: Record<string, React.ReactNode> = {
+  const tabContent: Record<string, ReactNode> = {
     General: <GeneralTab session={session} />,
     Security: <SecurityTab />,
     Notifications: <NotificationsTab session={session} />,
     Billing: <BillingTab companyId={companyId} />,
     Integrations: <IntegrationsTab />,
     Workspace: <WorkspaceTab companyId={companyId} companyRole={companyRole} />,
+    Team: <TeamTab companyId={companyId} companyRole={companyRole} />,
   };
 
   return (
