@@ -6,6 +6,7 @@ import { supabase } from "../lib/supabase";
 import { logActivity } from "../lib/activityLogger";
 import type { Session } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCompany } from "@/hooks/use-company";
 
 const tabs = [
   { icon: User, label: "General" },
@@ -13,6 +14,7 @@ const tabs = [
   { icon: Bell, label: "Notifications" },
   { icon: CreditCard, label: "Billing" },
   { icon: Puzzle, label: "Integrations" },
+  { icon: Monitor, label: "Workspace" },
 ];
 
 /* ── Shared Footer ── */
@@ -50,15 +52,19 @@ function GeneralTab({ session }: { session: Session | null }) {
   useEffect(() => {
     const fetchProfile = async () => {
       if (!session?.user?.id) return;
-      const { data, error } = await supabase.from("user_profiles").select('*').eq('id', session.user.id).maybeSingle();
-      
-      if (data) {
-        setProfile({
-          first_name: data.first_name || "",
-          last_name: data.last_name || "",
-          bio: data.bio || "",
-          timezone: data.timezone || "Western Indonesia Time (WIB)",
-        });
+      try {
+        const { data, error } = await supabase.from("user_profiles").select('*').eq('id', session.user.id).single();
+        if (error) throw error;
+        if (data) {
+          setProfile({
+            first_name: data.first_name || "",
+            last_name: data.last_name || "",
+            bio: data.bio || "",
+            timezone: data.timezone || "Western Indonesia Time (WIB)",
+          });
+        }
+      } catch (err) {
+        console.error('Failed to load profile:', err);
       }
     };
     fetchProfile();
@@ -68,23 +74,20 @@ function GeneralTab({ session }: { session: Session | null }) {
     if (!session?.user?.id) return;
     setIsLoading(true);
 
-    const updates = {
-      id: session.user.id,
-      first_name: profile.first_name,
-      last_name: profile.last_name,
-      bio: profile.bio,
-      timezone: profile.timezone,
-      updated_at: new Date(),
-    };
+    try {
+      const updates = {
+        first_name: profile.first_name,
+        last_name: profile.last_name,
+        bio: profile.bio,
+        timezone: profile.timezone,
+        updated_at: new Date(),
+      };
 
-    const { error } = await supabase.from("user_profiles").upsert(updates);
+      const { error } = await supabase.from("user_profiles").update(updates).eq('id', session.user.id);
 
-    if (error) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    } else {
+      if (error) throw error;
+
       toast({ title: "Profile updated", description: "Your general profile settings have been saved successfully." });
-      
-      // NOTIFIKASI UPDATE PROFILE
       await logActivity({
         user: "You",
         action: "updated your",
@@ -93,13 +96,34 @@ function GeneralTab({ session }: { session: Session | null }) {
         iconName: "CheckCircle",
         iconBg: "bg-success/10 text-success"
       });
+    } catch (error: any) {
+      console.error('Failed to save profile:', error);
+      toast({ title: "Error", description: error?.message ?? 'Failed to save profile.', variant: "destructive" });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      toast({ title: "Photo updated", description: `Successfully selected ${e.target.files[0].name}. (Storage DB not configured yet)` });
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!session?.user?.id) return;
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    setIsLoading(true);
+    try {
+      const filePath = `avatars/${session.user.id}/${Date.now()}_${file.name}`;
+      const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file, { upsert: true });
+      if (uploadError) throw uploadError;
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
+      const publicUrl = urlData.publicUrl;
+      const { error: updateError } = await supabase.from('user_profiles').update({ avatar_url: publicUrl }).eq('id', session.user.id);
+      if (updateError) throw updateError;
+      setProfile((p) => ({ ...p }));
+      toast({ title: 'Photo uploaded', description: 'Profile photo updated.' });
+    } catch (err) {
+      console.error('Avatar upload failed:', err);
+      toast({ title: 'Upload failed', description: 'Unable to upload avatar.', variant: 'destructive' });
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -174,6 +198,11 @@ function SecurityTab() {
       toast({ title: "Error", description: "Please fill in all password fields.", variant: "destructive" });
       return;
     }
+    if (passwords.new.length < 8) {
+      toast({ title: "Error", description: "Password must be at least 8 characters.", variant: "destructive" });
+      return;
+    }
+
     if (passwords.new !== passwords.confirm) {
       toast({ title: "Error", description: "New passwords do not match.", variant: "destructive" });
       return;
@@ -251,16 +280,32 @@ function NotificationsTab({ session }: { session: Session | null }) {
   useEffect(() => {
     const fetchPrefs = async () => {
       if (!session?.user?.id) return;
-      const { data } = await supabase.from("user_profiles").select('*').eq('id', session.user.id).maybeSingle();
-      if (data) {
-        setPrefs({
-          email_mentions: data.email_mentions ?? true,
-          email_updates: data.email_updates ?? false,
-          email_digest: data.email_digest ?? true,
-          push_mentions: data.push_mentions ?? true,
-          push_tasks: data.push_tasks ?? true,
-          push_comments: data.push_comments ?? false,
-        });
+      try {
+        const { data, error } = await supabase.from('user_settings').select('*').eq('user_id', session.user.id).maybeSingle();
+        if (error) throw error;
+        if (data) {
+          setPrefs({
+            email_mentions: data.email_notifications ?? true,
+            email_updates: data.marketing_notifications ?? false,
+            email_digest: data.email_notifications ?? true,
+            push_mentions: data.push_notifications ?? true,
+            push_tasks: data.push_notifications ?? true,
+            push_comments: data.push_notifications ?? false,
+          });
+        }
+      } catch (err) {
+        console.warn('user_settings load failed, falling back to user_profiles', err);
+        const { data } = await supabase.from("user_profiles").select('*').eq('id', session.user.id).maybeSingle();
+        if (data) {
+          setPrefs({
+            email_mentions: data.email_mentions ?? true,
+            email_updates: data.email_updates ?? false,
+            email_digest: data.email_digest ?? true,
+            push_mentions: data.push_mentions ?? true,
+            push_tasks: data.push_tasks ?? true,
+            push_comments: data.push_comments ?? false,
+          });
+        }
       }
     };
     fetchPrefs();
@@ -271,15 +316,24 @@ function NotificationsTab({ session }: { session: Session | null }) {
   const handleSave = async () => {
     if (!session?.user?.id) return;
     setIsLoading(true);
-    
-    const { error } = await supabase.from("user_profiles").upsert({ id: session.user.id, ...prefs });
-    
-    if (error) {
-      toast({ title: "Error", description: "Failed to save preferences.", variant: "destructive" });
-    } else {
+    try {
+      const settings = {
+        user_id: session.user.id,
+        email_notifications: prefs.email_mentions || false,
+        push_notifications: prefs.push_mentions || false,
+        marketing_notifications: prefs.email_updates || false,
+        updated_at: new Date().toISOString(),
+      };
+
+      // attempt update, else insert
+      const { error: updateError } = await supabase.from('user_settings').update(settings).eq('user_id', session.user.id);
+      if (updateError) {
+        // try insert
+        const { error: insertError } = await supabase.from('user_settings').insert(settings);
+        if (insertError) throw insertError;
+      }
+
       toast({ title: "Preferences saved", description: "Your notification settings have been updated." });
-      
-      // NOTIFIKASI UPDATE PREFS
       await logActivity({
         user: "You",
         action: "updated",
@@ -288,8 +342,12 @@ function NotificationsTab({ session }: { session: Session | null }) {
         iconName: "CheckCircle",
         iconBg: "bg-success/10 text-success"
       });
+    } catch (err) {
+      console.error('Failed to save user_settings', err);
+      toast({ title: "Error", description: "Failed to save preferences.", variant: "destructive" });
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const ToggleBtn = ({ on, onToggle }: { on: boolean; onToggle: () => void }) => (
@@ -327,20 +385,158 @@ function NotificationsTab({ session }: { session: Session | null }) {
 }
 
 /* ── Billing & Integrations ── */
-function BillingTab() {
+function WorkspaceTab({ companyId, companyRole }: { companyId: string | null; companyRole: string | null }) {
   const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
+  const [workspaceName, setWorkspaceName] = useState("");
+  const [companyName, setCompanyName] = useState("");
+  const [companyLoaded, setCompanyLoaded] = useState(false);
+
+  useEffect(() => {
+    const loadCompany = async () => {
+      if (!companyId) return;
+      setIsLoading(true);
+      try {
+        const { data, error } = await supabase.from('companies').select('*').eq('id', companyId).single();
+        if (error) throw error;
+        setCompanyName(data.name || "");
+        setWorkspaceName(data.name || "");
+      } catch (err) {
+        console.error('Load workspace failed:', err);
+        toast({ title: 'Error', description: 'Unable to load workspace settings.', variant: 'destructive' });
+      } finally {
+        setCompanyLoaded(true);
+        setIsLoading(false);
+      }
+    };
+
+    void loadCompany();
+  }, [companyId, toast]);
+
+  const handleSave = async () => {
+    if (!companyId) return;
+    if (companyRole !== 'owner') {
+      toast({ title: 'Not allowed', description: 'Only owners can edit workspace details.', variant: 'destructive' });
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const { error } = await supabase.from('companies').update({ name: workspaceName }).eq('id', companyId);
+      if (error) throw error;
+      setCompanyName(workspaceName);
+      toast({ title: 'Workspace updated', description: 'Workspace name has been saved successfully.' });
+      await logActivity({ user: 'You', action: 'updated your', target: 'Workspace name', type: 'success', iconName: 'CheckCircle', iconBg: 'bg-success/10 text-success' });
+    } catch (err: any) {
+      console.error('Save workspace failed:', err);
+      toast({ title: 'Error', description: err?.message ?? 'Unable to save workspace.', variant: 'destructive' });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const isEditable = companyRole === 'owner';
+
+  return (
+    <div className="p-6">
+      <div className="mb-6">
+        <h2 className="text-xl font-semibold text-foreground">Workspace Settings</h2>
+        <p className="text-sm text-muted-foreground mt-1">Manage your workspace name and visibility.</p>
+      </div>
+
+      {isLoading && !companyLoaded ? (
+        <div className="rounded-2xl border border-border p-8 text-center text-sm text-muted-foreground">Loading workspace details...</div>
+      ) : (
+        <div className="space-y-6">
+          <div className="space-y-1.5 max-w-xl">
+            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">Workspace Name</label>
+            <input value={workspaceName} onChange={(e) => setWorkspaceName(e.target.value)} disabled={!isEditable} className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary focus:ring-primary/20 text-sm py-2.5 px-3 transition-colors" />
+            {!isEditable && <p className="text-xs text-muted-foreground">Only company owners can edit workspace details.</p>}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button onClick={handleSave} disabled={!isEditable || isLoading} className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-xl shadow-primary-glow hover:opacity-90 disabled:opacity-50">Save Workspace</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BillingTab({ companyId }: { companyId: string | null }) {
+  const { toast } = useToast();
+  const [isLoading, setIsLoading] = useState(false);
+  const [subscription, setSubscription] = useState<{ plan: string; status: string; billing_cycle: string; expires_at: string } | null>(null);
+
+  useEffect(() => {
+    const loadSubscription = async () => {
+      if (!companyId) return;
+      setIsLoading(true);
+      try {
+        const { data, error } = await supabase.from('subscriptions').select('*').eq('company_id', companyId).single();
+        if (error) {
+          if (error.code === 'PGRST116' || error.details?.includes('result contains no rows')) {
+            setSubscription(null);
+            return;
+          }
+          throw error;
+        }
+        setSubscription(data);
+      } catch (err: any) {
+        if (err?.code === 'PGRST116' || err?.message?.includes('No rows')) {
+          setSubscription(null);
+        } else {
+          console.error('Load subscription failed:', err);
+          toast({ title: 'Error', description: 'Unable to load subscription details.', variant: 'destructive' });
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    void loadSubscription();
+  }, [companyId, toast]);
+
   return (
     <div className="p-6">
       <h2 className="text-xl font-semibold text-foreground mb-6">Billing & Subscription</h2>
-      <div className="p-6 rounded-xl border-2 border-primary/20 bg-primary/5 mb-8">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-lg font-bold text-foreground flex items-center gap-2">Professional Plan <span className="text-[10px] bg-primary text-white px-2 py-0.5 rounded-full">ACTIVE</span></h3>
-            <p className="text-sm text-muted-foreground mt-1">$99/month · Next billing date: Nov 24, 2024</p>
+      {isLoading ? (
+        <div className="rounded-2xl border border-border p-8 text-center text-sm text-muted-foreground">Loading subscription details...</div>
+      ) : subscription ? (
+        <div className="grid gap-4">
+          <div className="p-6 rounded-2xl border border-border bg-card">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Current Plan</p>
+                <p className="text-lg font-semibold text-foreground">{subscription.plan}</p>
+              </div>
+              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-success">{subscription.status}</span>
+            </div>
+            <div className="mt-4 grid sm:grid-cols-2 gap-4 text-sm text-muted-foreground">
+              <div>
+                <p className="font-medium text-foreground">Billing Cycle</p>
+                <p>{subscription.billing_cycle}</p>
+              </div>
+              <div>
+                <p className="font-medium text-foreground">Expires At</p>
+                <p>{new Date(subscription.expires_at).toLocaleDateString()}</p>
+              </div>
+            </div>
           </div>
-          <button onClick={() => toast({ title: "Redirecting", description: "Opening Stripe portal..." })} className="px-4 py-2 bg-card border border-border rounded-xl text-sm font-medium hover:bg-muted transition-colors">Manage Plan</button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button onClick={() => toast({ title: 'Upgrade', description: 'Upgrade service is not yet connected.' })} className="w-full px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-xl hover:opacity-90 transition">Upgrade Plan</button>
+            <button onClick={() => toast({ title: 'Manage', description: 'Manage subscription service is not yet connected.' })} className="w-full px-4 py-2 text-sm font-medium text-foreground bg-card border border-border rounded-xl hover:bg-muted transition">Manage Subscription</button>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="rounded-2xl border border-border p-8 text-center space-y-4">
+          <p className="text-sm font-medium text-foreground">No active subscription</p>
+          <p className="text-sm text-muted-foreground">Your company does not currently have an active subscription.</p>
+          <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <button onClick={() => toast({ title: 'Upgrade', description: 'Upgrade service is not yet connected.' })} className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-xl hover:opacity-90 transition">Upgrade Plan</button>
+            <button onClick={() => toast({ title: 'Manage', description: 'Manage Subscription service is not yet connected.' })} className="px-4 py-2 text-sm font-medium text-foreground bg-card border border-border rounded-xl hover:bg-muted transition">Manage Subscription</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -368,12 +564,31 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState("General");
   const { session } = useAuth();
 
+  const { companyId, isCompanyLoading, companyError } = useCompany();
+  const [companyRole, setCompanyRole] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadRole = async () => {
+      if (!companyId || !session?.user?.id) return;
+      try {
+        const { data, error } = await supabase.from('company_members').select('role').eq('company_id', companyId).eq('user_id', session.user.id).single();
+        if (error) throw error;
+        setCompanyRole(data.role ?? null);
+      } catch (err) {
+        console.warn('Failed to load company role:', err);
+        setCompanyRole(null);
+      }
+    };
+    void loadRole();
+  }, [companyId, session?.user?.id]);
+
   const tabContent: Record<string, React.ReactNode> = {
     General: <GeneralTab session={session} />,
     Security: <SecurityTab />,
     Notifications: <NotificationsTab session={session} />,
-    Billing: <BillingTab />,
+    Billing: <BillingTab companyId={companyId} />,
     Integrations: <IntegrationsTab />,
+    Workspace: <WorkspaceTab companyId={companyId} companyRole={companyRole} />,
   };
 
   return (
@@ -381,6 +596,11 @@ export default function SettingsPage() {
       <header className="mb-8">
         <h1 className="text-3xl font-bold text-foreground tracking-tight">Settings</h1>
         <p className="text-muted-foreground mt-2 text-sm sm:text-base">Manage your account settings and preferences.</p>
+        {companyError && (
+          <div className="mt-4 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            Failed to load company context. Workspace and billing sections may be unavailable.
+          </div>
+        )}
       </header>
 
       <div className="flex flex-col lg:flex-row gap-8 items-start">
