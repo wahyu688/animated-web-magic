@@ -34,6 +34,7 @@ export default function App() {
         {/* ============================== */}
         <Route path="/" element={<LandingPage />} />
         <Route path="/pricing" element={<PricingPage />} />
+        <Route path="/subscription" element={<PricingPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/about" element={<AboutPage />} />
         

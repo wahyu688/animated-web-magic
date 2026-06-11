@@ -120,7 +120,7 @@ export default function DashboardPage() {
   const fetchDashboardInfo = useCallback(async (showLoading = false) => {
     if (!companyId) {
       if (showLoading) setIsLoadingDB(false);
-      navigate("/pricing");
+      navigate("/subscription", { replace: true });
       return;
     }
     const requestId = showLoading

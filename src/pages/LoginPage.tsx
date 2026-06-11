@@ -5,6 +5,7 @@ import { Mail, Lock, ArrowRight, Loader2, Github, Chrome, CheckCircle2, AlertTri
 import { supabase } from "../lib/supabase";
 import { clearCompanyCache } from "../lib/company";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCompany } from "@/hooks/use-company";
 
 // --- KOMPONEN POP-UP NOTIFIKASI ---
 function FloatingAlert({ alert, onClose }: { alert: { type: 'success' | 'error', message: string } | null, onClose: () => void }) {
@@ -53,6 +54,7 @@ export default function LoginPage() {
   const [alert, setAlert] = useState<{ type: 'success' | 'error', message: string } | null>(null);
   const navigate = useNavigate();
   const { session, isAuthLoading } = useAuth();
+  const { companyId, isCompanyLoading } = useCompany();
 
   const showAlert = (type: 'success' | 'error', message: string) => {
     setAlert({ type, message });
@@ -60,8 +62,14 @@ export default function LoginPage() {
   };
 
   useEffect(() => {
-    if (!isAuthLoading && session) navigate("/dashboard");
-  }, [isAuthLoading, navigate, session]);
+    if (!isAuthLoading && !isCompanyLoading && session) {
+      if (companyId) {
+        navigate("/dashboard", { replace: true });
+      } else {
+        navigate("/subscription", { replace: true });
+      }
+    }
+  }, [isAuthLoading, isCompanyLoading, navigate, session, companyId]);
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,8 +90,6 @@ export default function LoginPage() {
         
         clearCompanyCache();
         showAlert('success', "Welcome back! Redirecting...");
-        setTimeout(() => navigate("/dashboard"), 1000); 
-        
       } else {
         const { data, error } = await supabase.auth.signUp({ 
           email: normalizedEmail, 
@@ -104,7 +110,6 @@ export default function LoginPage() {
 
            if (data.session) {
              showAlert('success', "Account created. Redirecting...");
-             setTimeout(() => navigate("/dashboard"), 800);
            } else {
              setIsSuccess(true);
            }

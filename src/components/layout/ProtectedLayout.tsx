@@ -2,20 +2,23 @@ import { Navigate } from "react-router-dom";
 import DashboardLayout from "./DashboardLayout";
 import DashboardSkeleton from "../DashboardSkeleton"; 
 import { useAuth } from "@/contexts/AuthContext";
+import { useCompany } from "@/hooks/use-company";
 
 export default function ProtectedLayout({ children }: { children: React.ReactNode }) {
   const { session, isAuthLoading } = useAuth();
+  const { companyId, isCompanyLoading } = useCompany();
 
-  // MENAMPILKAN SKELETON ANIMATION
-  if (isAuthLoading) {
+  if (isAuthLoading || isCompanyLoading) {
     return <DashboardSkeleton />;
   }
 
-  // Jika tidak punya tiket login, kembali ke halaman login
   if (!session) {
     return <Navigate to="/login" replace />;
   }
 
-  // Jika aman, Langsung di bantu dengan dashboatd layout yang real
+  if (!companyId) {
+    return <Navigate to="/subscription" replace />;
+  }
+
   return <DashboardLayout>{children}</DashboardLayout>;
 }

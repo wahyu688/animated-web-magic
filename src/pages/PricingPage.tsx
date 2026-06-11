@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Check } from "lucide-react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCompany } from "@/hooks/use-company";
+import { clearCompanyCache } from "@/lib/company";
 
 
 const plans = [
@@ -45,9 +47,9 @@ const faqs = [
 export default function PricingPage() {
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
 
-  
   const navigate = useNavigate();
   const { session } = useAuth();
+  const { companyId, isCompanyLoading } = useCompany();
 
   const handleSubscribe = async (planName: string) => {
     try {
@@ -58,16 +60,24 @@ export default function PricingPage() {
 
       const user = session.user;
 
-      // cek profile
-      const { data: profile } = await supabase
-        .from("user_profiles")
-        .select("company_id")
-        .eq("id", user.id)
-        .maybeSingle();
+      const [{ data: profile }, { data: member }] = await Promise.all([
+        supabase
+          .from("user_profiles")
+          .select("company_id")
+          .eq("id", user.id)
+          .maybeSingle(),
+        supabase
+          .from("company_members")
+          .select("company_id")
+          .eq("user_id", user.id)
+          .eq("status", "active")
+          .limit(1)
+          .maybeSingle(),
+      ]);
 
-      // sudah punya company
-      if (profile?.company_id) {
-        navigate("/dashboard");
+      const existingCompanyId = profile?.company_id ?? member?.company_id;
+      if (existingCompanyId) {
+        navigate("/dashboard", { replace: true });
         return;
       }
 
@@ -117,12 +127,19 @@ export default function PricingPage() {
 
       if (subscriptionError) throw subscriptionError;
 
-      navigate("/dashboard");
+      clearCompanyCache();
+      navigate("/dashboard", { replace: true });
 
     } catch (error) {
       console.error("Subscribe error:", error);
     }
   };
+
+  useEffect(() => {
+    if (!isCompanyLoading && companyId) {
+      navigate("/dashboard", { replace: true });
+    }
+  }, [companyId, isCompanyLoading, navigate]);
 
   return (
       <div className="min-h-screen bg-[#fcfcfd] text-slate-900">          
