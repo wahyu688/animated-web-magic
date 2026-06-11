@@ -39,11 +39,8 @@ interface ChartPoint {
 
 interface TopPage {
   id: string;
-  name: string;
+  page: string;
   views: number;
-  unique_views: number;
-  bounce: string;
-  trend: string;
 }
 
 interface TrafficSource {
@@ -404,25 +401,17 @@ export default function DashboardPage() {
               <tr className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
                 <th className="px-6 py-4">Page</th>
                 <th className="px-6 py-4">Views</th>
-                <th className="px-6 py-4">Unique</th>
-                <th className="px-6 py-4">Bounce Rate</th>
-                <th className="px-6 py-4 text-right">Trend</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {isLoadingDB ? (
-                 <tr><td colSpan={5} className="px-6 py-12 text-center text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" /></td></tr>
+                 <tr><td colSpan={2} className="px-6 py-12 text-center text-muted-foreground"><Loader2 className="h-6 w-6 animate-spin mx-auto mb-2" /></td></tr>
               ) : topPages.length === 0 ? (
-                 <tr><td colSpan={5} className="px-6 py-12 text-center text-muted-foreground text-sm">Belum ada data Top Pages.</td></tr>
+                 <tr><td colSpan={2} className="px-6 py-12 text-center text-muted-foreground text-sm">No page analytics data available.</td></tr>
               ) : topPages.map((page) => (
                 <tr key={page.id} className="hover:bg-muted/50 transition-colors">
-                  <td className="px-6 py-4 font-medium text-foreground font-mono text-sm">{page.name}</td>
-                  <td className="px-6 py-4 text-sm text-muted-foreground">{page.views}</td>
-                  <td className="px-6 py-4 text-sm text-muted-foreground">{page.unique_views}</td>
-                  <td className="px-6 py-4 text-sm text-muted-foreground">{page.bounce}</td>
-                  <td className="px-6 py-4 text-right">
-                    {page.trend === "up" ? <TrendingUp className="h-4 w-4 text-success inline" /> : <TrendingDown className="h-4 w-4 text-destructive inline" />}
-                  </td>
+                  <td className="px-6 py-4 font-medium text-foreground font-mono text-sm">{page.page}</td>
+                  <td className="px-6 py-4 text-sm text-muted-foreground">{page.views.toLocaleString()}</td>
                 </tr>
               ))}
             </tbody>

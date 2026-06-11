@@ -31,6 +31,8 @@ export default function InvitationPopup() {
             .select("*")
             .eq("email", user.email.toLowerCase().trim())
             .eq("status", "pending")
+            .order("created_at", { ascending: false })
+            .limit(1)
             .maybeSingle(),
           "invitation lookup"
         );
@@ -61,7 +63,8 @@ export default function InvitationPopup() {
         .insert({
           company_id: invite.company_id,
           user_id: user.id,
-          role: "member"
+          role: "member",
+          status: "active"
         });
 
       await supabase

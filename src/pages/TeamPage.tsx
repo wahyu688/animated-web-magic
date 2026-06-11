@@ -306,19 +306,22 @@ export default function TeamPage() {
   }, [companyId, fetchMembers]);
 
   // --- FILTER & PAGINATION LOGIC ---
+  const activeMembers = members.filter((m) => !m.is_invite);
+  const pendingInvites = members.filter((m) => m.is_invite);
+
   const filtered = useMemo(() => {
-    const filteredMembers = members.filter((m) => {
+    const filteredMembers = activeMembers.filter((m) => {
       const matchSearch = searchQuery === "" || m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.email.toLowerCase().includes(searchQuery.toLowerCase());
       const matchRole = roleFilter === "All Roles" || m.role === roleFilter;
       const matchStatus = statusFilter === "Status: All" || m.status === statusFilter.replace("Status: ", "");
       return matchSearch && matchRole && matchStatus;
     });
 
-    console.log("FILTER INPUT", members);
+    console.log("FILTER INPUT", activeMembers);
     console.log("FILTER OUTPUT", filteredMembers);
 
     return filteredMembers;
-  }, [members, searchQuery, roleFilter, statusFilter]);
+  }, [activeMembers, searchQuery, roleFilter, statusFilter]);
 
   const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
   const paginatedMembers = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
@@ -351,14 +354,12 @@ export default function TeamPage() {
       try {
         setIsLoading(true);
         if (deleteTarget.is_invite) {
-          // Hapus undangan jika statusnya pending
           const { error } = await supabase.from('invitations').delete().eq('company_id', companyId).eq('id', deleteTarget.id);
           if (error) throw error;
         } else {
-          // Cabut akses karyawan dari perusahaan (Set company_id jadi null)
           const { error } = await supabase
             .from("company_members")
-            .update({ status: "removed" })
+            .delete()
             .eq("company_id", companyId)
             .eq("id", deleteTarget.id);
           if (error) throw error;
@@ -747,6 +748,37 @@ export default function TeamPage() {
             <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Next</button>
           </div>
         </div>
+      </motion.div>
+
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mt-8 bg-card rounded-2xl border border-border shadow-card p-6">
+        <div className="mb-6 flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-bold text-foreground">Pending Invitations</h2>
+            <p className="text-sm text-muted-foreground">Manage pending invites sent to your workspace.</p>
+          </div>
+        </div>
+
+        {pendingInvites.length === 0 ? (
+          <div className="rounded-2xl border border-border p-8 text-center text-sm text-muted-foreground">
+            No pending invitations.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {pendingInvites.map((invite) => (
+              <div key={invite.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-border p-4">
+                <div>
+                  <p className="font-semibold text-foreground">{invite.email}</p>
+                  <p className="text-sm text-muted-foreground">Pending · {invite.date_added}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button onClick={() => { setDeleteTarget(invite); }} className="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-destructive hover:bg-destructive/10 transition">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </motion.div>
 
       {/* Delete Modal */}

@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Check } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
-import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCompany } from "@/hooks/use-company";
 import { clearCompanyCache } from "@/lib/company";
@@ -46,10 +45,52 @@ const faqs = [
 
 export default function PricingPage() {
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
+  const [pendingInvitesCount, setPendingInvitesCount] = useState(0);
 
   const navigate = useNavigate();
-  const { session } = useAuth();
+  const { user, session, refreshAuth } = useAuth();
   const { companyId, isCompanyLoading } = useCompany();
+
+  useEffect(() => {
+    let isMounted = true;
+    const loadInvites = async () => {
+      if (!user?.email) {
+        if (isMounted) setPendingInvitesCount(0);
+        return;
+      }
+      const normalizedEmail = user.email.toLowerCase().trim();
+      const { data, error } = await supabase
+        .from("invitations")
+        .select("id", { count: "exact" })
+        .eq("email", normalizedEmail)
+        .eq("status", "pending");
+
+      if (!isMounted) return;
+      if (error) {
+        console.error("Load pending invites error:", error);
+        setPendingInvitesCount(0);
+        return;
+      }
+      setPendingInvitesCount(data?.length ?? 0);
+    };
+
+    void loadInvites();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [user?.email]);
+
+  const handleLogout = async () => {
+    try {
+      await supabase.auth.signOut();
+      clearCompanyCache();
+      await refreshAuth();
+      navigate("/", { replace: true });
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
+  };
 
   const handleSubscribe = async (planName: string) => {
     try {
@@ -190,12 +231,36 @@ export default function PricingPage() {
             </Link>
           </div>
 
-          <Link
-            to="/login"
-            className="text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-lg transition-all hover:-translate-y-0.5 bg-[#376CDD]"
-          >
-            Get Started
-          </Link>
+          {!user ? (
+            <div className="flex items-center gap-3">
+              <Link to="/login" className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors">
+                Login
+              </Link>
+              <Link
+                to="/login"
+                className="text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-lg transition-all hover:-translate-y-0.5 bg-[#376CDD]"
+              >
+                Get Started
+              </Link>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3">
+              <Link
+                to="/dashboard"
+                className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
+              >
+                Dashboard
+              </Link>
+              {pendingInvitesCount > 0 && (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+                  {pendingInvitesCount} invite{pendingInvitesCount > 1 ? "s" : ""}
+                </span>
+              )}
+              <button onClick={handleLogout} className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors">
+                Logout
+              </button>
+            </div>
+          )}
 
         </div>
       </nav>
