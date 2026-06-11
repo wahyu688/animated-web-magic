@@ -58,14 +58,18 @@ export default function InvitationPopup() {
     try {
       if (!user || !invite) return;
 
+      const payload = {
+        company_id: invite.company_id,
+        user_id: user.id,
+        role: "member",
+        status: "active",
+      };
+
+      console.log({ currentUser: user?.id, companyId: invite.company_id, role: "member", payload });
+
       await supabase
         .from("company_members")
-        .insert({
-          company_id: invite.company_id,
-          user_id: user.id,
-          role: "member",
-          status: "active"
-        });
+        .insert(payload);
 
       await supabase
         .from("user_profiles")

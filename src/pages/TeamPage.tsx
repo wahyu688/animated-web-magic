@@ -4,6 +4,7 @@ import { Search, Download, Plus, Edit, Trash2, Shield, Eye, FileEdit, X, Loader2
 import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
 import { logActivity } from "../lib/activityLogger";
 import { useCompany } from "@/hooks/use-company";
 import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
@@ -80,6 +81,7 @@ const statusStyles: Record<string, string> = {
 
 export default function TeamPage() {
   const { toast } = useToast();
+  const { user } = useAuth();
   
   // --- DATABASE STATES ---
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -245,21 +247,29 @@ export default function TeamPage() {
         })
         .filter((item): item is TeamMember => item !== null);
 
-      const pendingData: TeamMember[] = (Array.isArray(pendingInvites) ? pendingInvites : []).map((inv) => ({
-        id: inv.id,
-        name: "Pending Invite",
-        email: inv.email,
-        role: "Viewer",
-        status: "Pending",
-        date_added: new Date(inv.created_at).toLocaleDateString("en-US", {
-          month: "short",
-          day: "2-digit",
-          year: "numeric",
-        }),
-        initials: "@",
-        color: "bg-warning",
-        is_invite: true,
-      }));
+      const activeEmails = new Set(activeData.map((m) => (m.email || '').toLowerCase()).filter(Boolean));
+      const profileEmails = new Set(Array.from(profileMap.values()).map((p) => (p.email || '').toLowerCase()).filter(Boolean));
+
+      const pendingData: TeamMember[] = (Array.isArray(pendingInvites) ? pendingInvites : [])
+        .filter((inv) => {
+          const email = (inv.email || '').toLowerCase();
+          return email && !activeEmails.has(email) && !profileEmails.has(email);
+        })
+        .map((inv) => ({
+          id: inv.id,
+          name: "Pending Invite",
+          email: inv.email,
+          role: "Viewer",
+          status: "Pending",
+          date_added: new Date(inv.created_at).toLocaleDateString("en-US", {
+            month: "short",
+            day: "2-digit",
+            year: "numeric",
+          }),
+          initials: "@",
+          color: "bg-warning",
+          is_invite: true,
+        }));
 
       console.log("ACTIVE MEMBERS", activeData);
       console.log("PENDING INVITES", pendingData);
@@ -276,6 +286,46 @@ export default function TeamPage() {
       if (isMountedRef.current) setIsLoading(false);
     }
   }, [companyId, toast]);
+
+  const handleResendInvite = async (inviteId: string, email: string) => {
+    if (!companyId) {
+      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+
+      const { error } = await supabase
+        .from('invitations')
+        .update({ updated_at: new Date().toISOString() })
+        .eq('id', inviteId);
+
+      if (error) throw error;
+
+      await supabase.from('notifications').insert([{
+        company_id: companyId,
+        type: 'invite',
+        user_name: 'You',
+        action: 'resent',
+        target: email,
+        message: `Invitation resent to ${email}`,
+        time: 'Just now',
+        unread: true,
+        icon_name: 'Mail',
+        icon_bg: 'bg-primary/10 text-primary',
+        has_action: false,
+      }]);
+
+      toast({ title: 'Invitation resent', description: `Resent to ${email}` });
+    } catch (err) {
+      console.error('Resend invite error:', err);
+      toast({ title: 'Error', description: 'Failed to resend invitation.', variant: 'destructive' });
+    } finally {
+      await fetchMembers();
+      setIsLoading(false);
+    }
+  };
 
   useSupabaseResumeRecovery({
     enabled: Boolean(companyId),
@@ -522,29 +572,25 @@ export default function TeamPage() {
             .eq("id", existingMember.id);
           if (reactivateError) throw reactivateError;
         } else {
-          const { error: memberError } = await supabase
-            .from("company_members")
+          // Instead of directly inserting into company_members (which would auto-add the user),
+          // create a pending invitation and notify the invited user. The invited user will be
+          // added to company_members only when they Accept the invitation.
+          const { data: inviteData, error: invitationError } = await supabase
+            .from("invitations")
             .insert([
               {
                 company_id: companyId,
-                user_id: existingUser.id,
-                role,
-                status: "active",
+                email: normalizedEmail,
+                status: "pending",
               },
-            ]);
+            ])
+            .select()
+            .maybeSingle();
 
-          if (memberError) throw memberError;
+          if (invitationError) throw invitationError;
+
+          // notification will be created below in the shared notification section
         }
-
-        const { error: profileError } = await supabase
-          .from("user_profiles")
-          .update({
-            company_id: companyId,
-            role,
-          })
-          .eq("id", existingUser.id);
-
-        if (profileError) throw profileError;
       } else {
         const { error: invitationError } = await supabase
           .from("invitations")
@@ -576,7 +622,8 @@ export default function TeamPage() {
         .insert([
           {
             company_id: companyId,
-            type: "invite",
+            user_id: existingUser ? existingUser.id : null,
+            type: "invitation",
             user_name: "You",
             action: "invited",
             target: normalizedEmail,
@@ -771,6 +818,9 @@ export default function TeamPage() {
                   <p className="text-sm text-muted-foreground">Pending · {invite.date_added}</p>
                 </div>
                 <div className="flex items-center gap-3">
+                  <button onClick={() => handleResendInvite(invite.id, invite.email)} disabled={isLoading} className="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-primary/10 transition">
+                    Resend
+                  </button>
                   <button onClick={() => { setDeleteTarget(invite); }} className="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-destructive hover:bg-destructive/10 transition">
                     Cancel
                   </button>
