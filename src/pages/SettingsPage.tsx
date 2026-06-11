@@ -68,6 +68,7 @@ function GeneralTab({ session }: { session: Session | null }) {
         }
       } catch (err) {
         console.error('Failed to load profile:', err);
+        toast({ title: 'Profile load failed', description: 'Unable to load your profile settings.', variant: 'destructive' });
       }
     };
     fetchProfile();
@@ -325,7 +326,8 @@ function NotificationsTab({ session }: { session: Session | null }) {
           push_comments: false,
         });
       } catch (err) {
-        console.warn('user_settings load failed, falling back to user_profiles', err);
+        console.error('Failed to load user_settings, falling back to user_profiles:', err);
+        toast({ title: 'Notification settings load failed', description: 'Unable to load saved notification preferences.', variant: 'destructive' });
         const { data } = await supabase.from("user_profiles").select('*').eq('id', session.user.id).maybeSingle();
         if (data) {
           setPrefs({
@@ -718,6 +720,7 @@ function IntegrationsTab() {
 
 /* ── MAIN SETTINGS PAGE ── */
 export default function SettingsPage() {
+  const { toast } = useToast();
   const [activeTab, setActiveTab] = useState("General");
   const { session } = useAuth();
 
@@ -732,7 +735,8 @@ export default function SettingsPage() {
         if (error) throw error;
         setCompanyRole(data.role ?? null);
       } catch (err) {
-        console.warn('Failed to load company role:', err);
+        console.error('Failed to load company role:', err);
+        toast({ title: 'Workspace role load failed', description: 'Unable to determine your company permission level.', variant: 'destructive' });
         setCompanyRole(null);
       }
     };
