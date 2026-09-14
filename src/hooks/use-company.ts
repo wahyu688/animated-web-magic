@@ -10,10 +10,22 @@ export function useCompany() {
   const [companyError, setCompanyError] = useState<Error | null>(null);
   const { user, isAuthLoading } = useAuth();
 
+  // Identitas user yang stabil. Saat pindah/alt-tab, Supabase me-refresh sesi dan
+  // menghasilkan OBJEK user baru walau id-nya sama; kalau kita bereaksi ke objeknya,
+  // company akan dimuat ulang dan memunculkan skeleton (terasa seperti refresh).
+  // Cukup bereaksi ke id-nya saja.
+  const authUserId = user?.id ?? null;
+
   const requestIdRef = useRef(0);
   const mountedRef = useRef(false);
   const hasLoadedRef = useRef(false);
   const companyIdRef = useRef<string | null>(null);
+  const userRef = useRef(user);
+
+  // Simpan objek user terbaru untuk dipakai loadCompany tanpa menjadikannya dependency.
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   const loadCompany = useCallback(async (showInitialLoading = false) => {
     const requestId = ++requestIdRef.current;
@@ -26,21 +38,13 @@ export function useCompany() {
       }
 
       setCompanyError(null);
-      console.log("=== USE COMPANY LOAD START ===");
-      console.log("AUTH USER FROM CONTEXT", user?.id);
-      console.log("AUTH LOADING", isAuthLoading);
-      const company = await getCurrentCompany(user);
-
-      console.log("COMPANY RESULT FROM GET CURRENT COMPANY", company);
-      console.log("COMPANY ID RETURNED", company?.companyId);
-      console.log("USER ID RETURNED", company?.userId);
+      const company = await getCurrentCompany(userRef.current);
 
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       const nextCompanyId = company?.companyId ?? null;
       companyIdRef.current = nextCompanyId;
       setCompanyId(nextCompanyId);
       setUserId(company?.userId ?? null);
-      console.log("COMPANY STATE SET TO", nextCompanyId);
     } catch (error) {
       if (!mountedRef.current || requestId !== requestIdRef.current) return;
       console.error("Company context error:", error);
@@ -63,7 +67,7 @@ export function useCompany() {
         setIsCompanyRefreshing(false);
       }
     }
-  }, [user]);
+  }, []);
 
   const refreshCompany = useCallback(async () => {
     clearCompanyCache();
@@ -76,7 +80,7 @@ export function useCompany() {
     const initialize = async () => {
       if (isAuthLoading) return;
 
-      if (!user) {
+      if (!authUserId) {
         requestIdRef.current += 1;
         clearCompanyCache();
         companyIdRef.current = null;
@@ -92,13 +96,14 @@ export function useCompany() {
       await loadCompany(true);
     };
 
-    initialize();
+    void initialize();
 
     return () => {
       mountedRef.current = false;
     };
-
-  }, [isAuthLoading, loadCompany, user]);
+    // Sengaja hanya bergantung pada authUserId (bukan objek user) supaya
+    // company tidak dimuat ulang setiap kali sesi di-refresh saat pindah tab.
+  }, [isAuthLoading, authUserId, loadCompany]);
 
   return {
     companyId,
