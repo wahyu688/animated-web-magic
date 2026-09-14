@@ -318,7 +318,7 @@ export default function ActivityPage() {
       </div>
 
       {/* Feed */}
-      <motion.div layout className="bg-card rounded-2xl shadow-card border border-border overflow-hidden">
+      <motion.div layout transition={{ layout: { duration: 0.25, ease: "easeOut" } }} className="bg-card rounded-2xl shadow-card border border-border overflow-hidden">
         <div className="px-6 pt-6 pb-2">
           <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
             {activeTab === "All Activity" ? "Recent" : activeTab}
@@ -327,17 +327,26 @@ export default function ActivityPage() {
 
         <AnimatePresence mode="popLayout">
           {filteredNotifications.length === 0 && !isLoading ? (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="p-8 text-center text-muted-foreground text-sm">
+            <motion.div key="empty-state" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} className="p-8 text-center text-muted-foreground text-sm">
               No activities found for this category.
             </motion.div>
           ) : (
             filteredNotifications.map((n, i) => (
               <motion.div
-                key={n.id} layout initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, scale: 0.95 }} transition={{ duration: 0.2, delay: i * 0.05 }}
+                key={n.id}
+                layout="position"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.15, delay: 0 } }}
+                transition={{
+                  layout: { type: "spring", stiffness: 500, damping: 40 },
+                  opacity: { duration: 0.25, delay: Math.min(i * 0.04, 0.3) },
+                  y: { duration: 0.25, delay: Math.min(i * 0.04, 0.3) },
+                }}
                 onClick={() => handleItemClick(n.id)}
                 className={`group relative flex items-start gap-4 p-4 hover:bg-muted/50 transition-all cursor-pointer border-b border-border/50 last:border-0 ${n.unread ? "bg-primary/5 hover:bg-primary/10" : ""}`}
               >
-                {n.unread && <motion.div layoutId={`dot-${n.id}`} className="absolute left-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-primary rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />}
+                {n.unread && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ duration: 0.2 }} className="absolute left-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-primary rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />}
                 
                 <div className="flex-shrink-0 ml-2">
                   {n.initials ? (
