@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { Save, Loader2, Calculator, Receipt, TrendingUp, CheckCircle2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -8,6 +8,14 @@ import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle"
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 
 const ALL_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+const parseNum = (v: string) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+};
+
+const formatUSD = (n: number) =>
+  new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n);
 
 interface ChartDatum {
   id: string;
@@ -65,6 +73,59 @@ export default function FinancialPage() {
     avgSessionMinutes: "",
     supportTickets: ""
   });
+
+  // Kalkulasi live — dipakai untuk panel ringkasan DAN saat menyimpan,
+  // supaya angka yang dilihat user persis sama dengan yang tersimpan.
+  const metrics = useMemo(() => {
+    const subscriptionRevenue = parseNum(formData.subscriptionRevenue);
+    const enterpriseRevenue = parseNum(formData.enterpriseRevenue);
+    const oneTimeRevenue = parseNum(formData.oneTimeRevenue);
+    const refunds = parseNum(formData.refunds);
+
+    const newCustomers = parseNum(formData.newCustomers);
+    const lostCustomers = parseNum(formData.lostCustomers);
+    const activeCustomers = parseNum(formData.activeCustomers);
+    const monthlyActiveUsers = parseNum(formData.monthlyActiveUsers);
+    const supportTickets = parseNum(formData.supportTickets);
+    const sessionMins = parseNum(formData.avgSessionMinutes);
+
+    const totalRevenue =
+      subscriptionRevenue + enterpriseRevenue + oneTimeRevenue - refunds;
+
+    const totalExpenses =
+      parseNum(formData.payrollExpenses) +
+      parseNum(formData.marketingSpend) +
+      parseNum(formData.infrastructureCost) +
+      parseNum(formData.softwareLicenses) +
+      parseNum(formData.operationalExpenses);
+
+    const netProfit = totalRevenue - totalExpenses;
+    const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+    const churnRate = activeCustomers > 0 ? (lostCustomers / activeCustomers) * 100 : 0;
+    const netCustomers = newCustomers - lostCustomers;
+
+    // Cari revenue aktual bulan sebelumnya dari ledger (bukan angka buatan)
+    const monthIdx = ALL_MONTHS.indexOf(formData.month);
+    let prevRevenue: number | null = null;
+    for (let i = monthIdx - 1; i >= 0; i--) {
+      const row = chartData.find((c) => c.month === ALL_MONTHS[i]);
+      if (row) {
+        prevRevenue = row.current_val;
+        break;
+      }
+    }
+
+    const revenueGrowth =
+      prevRevenue !== null && prevRevenue > 0
+        ? ((totalRevenue - prevRevenue) / prevRevenue) * 100
+        : null;
+
+    return {
+      totalRevenue, totalExpenses, netProfit, profitMargin, churnRate,
+      netCustomers, newCustomers, lostCustomers, activeCustomers,
+      monthlyActiveUsers, supportTickets, sessionMins, prevRevenue, revenueGrowth,
+    };
+  }, [formData, chartData]);
 
   const fetchFinanceData = useCallback(async (showLoading = false) => {
     if (!companyId) {
@@ -136,73 +197,55 @@ export default function FinancialPage() {
       return;
     }
 
+    // --- VALIDASI INPUT ---
+    const numericValues = Object.entries(formData)
+      .filter(([key]) => key !== "month")
+      .map(([, value]) => value);
+
+    if (numericValues.every((v) => v.trim() === "")) {
+      toast({ title: "Empty Report", description: "Isi minimal satu data keuangan sebelum menyimpan.", variant: "destructive" });
+      return;
+    }
+
+    if (numericValues.some((v) => v.trim() !== "" && Number(v) < 0)) {
+      toast({ title: "Invalid Input", description: "Nilai tidak boleh negatif. Gunakan kolom Refunds untuk pengurang revenue.", variant: "destructive" });
+      return;
+    }
+
+    if (metrics.activeCustomers > 0 && metrics.lostCustomers > metrics.activeCustomers) {
+      toast({ title: "Invalid Input", description: "Lost customers tidak boleh melebihi active customers.", variant: "destructive" });
+      return;
+    }
+
     setIsProcessing(true);
 
     try {
-      const subscriptionRevenue = Number(formData.subscriptionRevenue);
-      const enterpriseRevenue = Number(formData.enterpriseRevenue);
-      const oneTimeRevenue = Number(formData.oneTimeRevenue);
-      const refunds = Number(formData.refunds);
+      const {
+        totalRevenue, churnRate, netCustomers, newCustomers, lostCustomers,
+        activeCustomers, monthlyActiveUsers, supportTickets, sessionMins,
+        prevRevenue, revenueGrowth,
+      } = metrics;
 
-      const newCustomers = Number(formData.newCustomers);
-      const lostCustomers = Number(formData.lostCustomers);
-      const activeCustomers = Number(formData.activeCustomers);
+      const kpiPayload = {
+        total_revenue: formatUSD(totalRevenue),
 
-      const payroll = Number(formData.payrollExpenses);
-      const marketing = Number(formData.marketingSpend);
-      const infrastructure = Number(formData.infrastructureCost);
-      const software = Number(formData.softwareLicenses);
-      const operational = Number(formData.operationalExpenses);
+        // Pertumbuhan revenue dibanding bulan sebelumnya yang tercatat di ledger.
+        // Bulan pertama (belum ada pembanding) ditandai "New".
+        revenue_change: revenueGrowth === null ? "New" : `${revenueGrowth >= 0 ? '+' : ''}${revenueGrowth.toFixed(1)}%`,
+        revenue_trend: revenueGrowth === null ? "stable" : revenueGrowth >= 0 ? "up" : "down",
 
-      const sessionMins = Number(formData.avgSessionMinutes);
+        // KPI "Active Users" memakai MAU produk bila diisi; fallback ke paying customers.
+        active_users: new Intl.NumberFormat('en-US').format(monthlyActiveUsers > 0 ? monthlyActiveUsers : activeCustomers),
 
-      const totalRevenue =
-        subscriptionRevenue +
-        enterpriseRevenue +
-        oneTimeRevenue -
-        refunds;
-
-      const totalExpenses =
-        payroll +
-        marketing +
-        infrastructure +
-        software +
-        operational;
-
-      const netProfit = totalRevenue - totalExpenses;
-
-      const churnRate =
-        activeCustomers > 0
-          ? (lostCustomers / activeCustomers) * 100
-          : 0;
-
-      const revenueGrowth =
-        totalRevenue > 0
-          ? ((netProfit) / totalRevenue) * 100
-          : 0;
-
-
-       const kpiPayload = {
-        total_revenue: new Intl.NumberFormat('en-US', {
-          style: 'currency',
-          currency: 'USD',
-          maximumFractionDigits: 0
-        }).format(totalRevenue),
-
-        revenue_change: `${revenueGrowth >= 0 ? '+' : ''}${revenueGrowth.toFixed(1)}%`,
-        revenue_trend: revenueGrowth >= 0 ? "up" : "down",
-
-        active_users: new Intl.NumberFormat('en-US').format(activeCustomers),
-
-        users_change: `+${newCustomers}`,
-        users_trend: "up",
+        users_change: `${netCustomers >= 0 ? '+' : ''}${netCustomers} net`,
+        users_trend: netCustomers > 0 ? "up" : netCustomers < 0 ? "down" : "stable",
 
         churn_rate: `${churnRate.toFixed(1)}%`,
-        churn_change: `${lostCustomers} lost`,
+        churn_change: `${lostCustomers} lost / ${newCustomers} new`,
         churn_trend: churnRate <= 5 ? "stable" : "down",
 
         avg_session: `${Math.floor(sessionMins)}m ${Math.round((sessionMins % 1) * 60)}s`,
-        session_change: "Operational",
+        session_change: supportTickets > 0 ? `${supportTickets} tickets` : "Operational",
         session_trend: "stable"
       };
 
@@ -219,13 +262,16 @@ export default function FinancialPage() {
       }
 
       // --- SIMPAN GRAFIK (CHART) ---
+      // previous_val = revenue aktual bulan sebelumnya dari ledger,
+      // bukan angka buatan — garis pembanding di chart jadi data nyata.
+      const comparisonVal = prevRevenue ?? totalRevenue;
       const existingMonth = chartData.find(c => c.month === formData.month);
       if (existingMonth) {
         // Jika bulan ini sudah ada datanya, Update
-        const { error } = await supabase.from('chart_data').update({ current_val: totalRevenue, previous_val: totalRevenue * 0.85 }).eq('company_id', companyId).eq('id', existingMonth.id);
+        const { error } = await supabase.from('chart_data').update({ current_val: totalRevenue, previous_val: comparisonVal }).eq('company_id', companyId).eq('id', existingMonth.id);
         if (error) throw error;
-          
-        const updatedChart = chartData.map(c => c.id === existingMonth.id ? { ...c, current_val: totalRevenue, previous_val: totalRevenue * 0.85 } : c);
+
+        const updatedChart = chartData.map(c => c.id === existingMonth.id ? { ...c, current_val: totalRevenue, previous_val: comparisonVal } : c);
         setChartData(updatedChart);
       } else {
         // Jika bulan ini belum ada (akun baru), Insert
@@ -234,7 +280,7 @@ export default function FinancialPage() {
           company_id: companyId,
           month: formData.month,
           current_val: totalRevenue,
-          previous_val: totalRevenue * 0.85,
+          previous_val: comparisonVal,
           sort_order: sortOrder
         }).select().maybeSingle();
 
@@ -694,6 +740,53 @@ export default function FinancialPage() {
                 </p>
               </div>
 
+            </div>
+
+            {/* RINGKASAN KALKULASI LIVE — review sebelum disimpan */}
+            <div className="rounded-2xl border border-primary/20 p-5 bg-primary/5 space-y-3">
+              <h3 className="text-sm font-black uppercase tracking-wide text-primary flex items-center gap-2">
+                <TrendingUp className="w-4 h-4" /> Calculated Summary — {formData.month}
+              </h3>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total Revenue</span>
+                  <span className="font-bold text-foreground font-mono">{formatUSD(metrics.totalRevenue)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Total Expenses</span>
+                  <span className="font-bold text-foreground font-mono">{formatUSD(metrics.totalExpenses)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Net Profit</span>
+                  <span className={`font-bold font-mono ${metrics.netProfit >= 0 ? "text-success" : "text-destructive"}`}>
+                    {formatUSD(metrics.netProfit)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Profit Margin</span>
+                  <span className={`font-bold font-mono ${metrics.profitMargin >= 0 ? "text-success" : "text-destructive"}`}>
+                    {metrics.profitMargin.toFixed(1)}%
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Churn Rate</span>
+                  <span className="font-bold text-foreground font-mono">{metrics.churnRate.toFixed(1)}%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Net Customers</span>
+                  <span className={`font-bold font-mono ${metrics.netCustomers >= 0 ? "text-success" : "text-destructive"}`}>
+                    {metrics.netCustomers >= 0 ? "+" : ""}{metrics.netCustomers}
+                  </span>
+                </div>
+                <div className="flex justify-between col-span-2">
+                  <span className="text-muted-foreground">Growth vs previous month</span>
+                  <span className="font-bold text-foreground font-mono">
+                    {metrics.revenueGrowth === null
+                      ? "— (no earlier month recorded)"
+                      : `${metrics.revenueGrowth >= 0 ? "+" : ""}${metrics.revenueGrowth.toFixed(1)}% (prev ${formatUSD(metrics.prevRevenue ?? 0)})`}
+                  </span>
+                </div>
+              </div>
             </div>
 
             <button type="submit" disabled={isProcessing} className="w-full mt-6 py-3 rounded-xl bg-primary text-primary-foreground font-bold flex items-center justify-center gap-2 shadow-primary-glow hover:opacity-90 transition-opacity disabled:opacity-50">
