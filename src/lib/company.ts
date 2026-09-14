@@ -188,57 +188,29 @@ async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
   if (profileError) throw profileError;
   if (!profile?.company_id) return null;
 
-  const role = profile.role ?? "member";
-  const payload = { company_id: profile.company_id, user_id: user.id, role, status: "active" };
-  console.log("=== LOAD CURRENT COMPANY REPAIR ===");
-  console.log("PROFILE DATA FROM USER_PROFILES", profile);
-  console.log("REPAIR LOOKUP USER ID", user.id);
-  console.log("REPAIR LOOKUP COMPANY ID", profile.company_id);
-  console.log("ATTEMPTING COMPANY MEMBER UPSERT", payload);
+  // Profil masih menunjuk sebuah company, tapi tidak ada membership aktif dan
+  // tidak ada undangan pending. company_members adalah satu-satunya sumber
+  // kebenaran akses — kondisi ini berarti user sudah dikeluarkan dari workspace
+  // (di-kick). Jangan membuat ulang membership dari data profil yang basi;
+  // bersihkan referensi company di profil agar user diarahkan memilih plan sendiri.
+  console.warn("Profile references company without active membership. Clearing stale company reference.", {
+    userId: user.id,
+    staleCompanyId: profile.company_id,
+  });
 
-  const { data: repairedMember, error: repairedMemberError } = await withSupabaseTimeout(
+  const { error: cleanupError } = await withSupabaseTimeout(
     supabase
-      .from("company_members")
-      .select("id")
-      .eq("company_id", profile.company_id)
-      .eq("user_id", user.id)
-      .maybeSingle(),
-    "company repaired member lookup"
+      .from("user_profiles")
+      .update({ company_id: null, role: "member", updated_at: new Date().toISOString() })
+      .eq("id", user.id),
+    "company stale profile cleanup"
   );
 
-  console.log("REPAIR LOOKUP USER ID (VERIFIED)", user.id);
-  console.log("REPAIR LOOKUP COMPANY ID (VERIFIED)", profile.company_id);
-  console.log("REPAIR LOOKUP RESULT", repairedMember);
-  console.log("REPAIR LOOKUP ERROR", repairedMemberError);
-
-  if (repairedMemberError) {
-    console.error("MEMBERSHIP LOOKUP FAILED (RLS?)", repairedMemberError);
-    console.warn("Skipping membership repair due to RLS error. Profile data exists but membership lookup blocked.");
-    return {
-      userId: user.id,
-      companyId: profile.company_id,
-      role,
-    };
+  if (cleanupError) {
+    console.error("Failed to clear stale company reference:", cleanupError);
   }
 
-  const repairWrite = repairedMember
-    ? supabase
-        .from("company_members")
-        .update({ role, status: "active" })
-        .eq("id", repairedMember.id)
-    : supabase
-        .from("company_members")
-        .upsert([payload], { onConflict: "user_id,company_id" });
-
-  const { error: repairError } = await withSupabaseTimeout(repairWrite, "company repair write");
-
-  if (repairError) throw repairError;
-
-  return {
-    userId: user.id,
-    companyId: profile.company_id,
-    role,
-  };
+  return null;
 }
 
 export async function getCurrentCompany(user?: User | null): Promise<CompanyContext | null> {
