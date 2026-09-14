@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import { Check } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Check, CheckCircle2, Loader2, XCircle } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
@@ -43,9 +43,17 @@ const faqs = [
 ];
 
 
+interface PaymentState {
+  stage: "processing" | "success" | "error";
+  plan: string;
+  price: number | null;
+  message?: string;
+}
+
 export default function PricingPage() {
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
   const [pendingInvitesCount, setPendingInvitesCount] = useState(0);
+  const [payment, setPayment] = useState<PaymentState | null>(null);
 
   const navigate = useNavigate();
   const { user, session, refreshAuth } = useAuth();
@@ -92,7 +100,7 @@ export default function PricingPage() {
     }
   };
 
-  const handleSubscribe = async (planName: string) => {
+  const handleSubscribe = async (planName: string, price: number | null) => {
     try {
       if (!session?.user) {
         navigate("/login");
@@ -121,6 +129,10 @@ export default function PricingPage() {
         navigate("/dashboard", { replace: true });
         return;
       }
+
+      // Simulasi proses pembayaran (project tugas — belum ada payment gateway)
+      setPayment({ stage: "processing", plan: planName, price });
+      await new Promise((resolve) => setTimeout(resolve, 1600));
 
       // create workspace/company
       const { data: company, error: companyError } = await supabase
@@ -169,18 +181,25 @@ export default function PricingPage() {
       if (subscriptionError) throw subscriptionError;
 
       clearCompanyCache();
-      navigate("/dashboard", { replace: true });
+      setPayment({ stage: "success", plan: planName, price });
 
     } catch (error) {
       console.error("Subscribe error:", error);
+      const message = error instanceof Error ? error.message : "Something went wrong while activating your plan.";
+      setPayment({ stage: "error", plan: planName, price, message });
     }
   };
 
+  const handleGoToDashboard = () => {
+    setPayment(null);
+    navigate("/dashboard", { replace: true });
+  };
+
   useEffect(() => {
-    if (!isCompanyLoading && companyId) {
+    if (!isCompanyLoading && companyId && !payment) {
       navigate("/dashboard", { replace: true });
     }
-  }, [companyId, isCompanyLoading, navigate]);
+  }, [companyId, isCompanyLoading, navigate, payment]);
 
   return (
       <div className="min-h-screen bg-[#fcfcfd] text-slate-900">          
@@ -347,7 +366,7 @@ export default function PricingPage() {
               <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
-                  onClick={() => handleSubscribe(plan.name)}
+                  onClick={() => handleSubscribe(plan.name, plan.price[billing])}
                   className={`w-full py-4 px-6 rounded-xl font-bold text-sm transition-all duration-200 ${
                     plan.highlighted
                       ? "bg-primary text-primary-foreground shadow-primary-glow hover:opacity-90"
@@ -381,6 +400,94 @@ export default function PricingPage() {
           </div>
         </div>
       </div>
+
+      {/* --- PAYMENT SIMULATION POPUP --- */}
+      <AnimatePresence>
+        {payment && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4"
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.92, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.92, y: 16 }}
+              transition={{ type: "spring", duration: 0.45 }}
+              className="w-full max-w-md rounded-2xl bg-card border border-border shadow-card-hover p-8 text-center"
+            >
+              {payment.stage === "processing" && (
+                <>
+                  <Loader2 className="h-14 w-14 text-primary animate-spin mx-auto mb-6" />
+                  <h3 className="text-xl font-black text-foreground mb-2">Processing payment…</h3>
+                  <p className="text-sm text-muted-foreground">
+                    Activating your <span className="font-semibold text-foreground">{payment.plan}</span> plan. Please wait a moment.
+                  </p>
+                </>
+              )}
+
+              {payment.stage === "success" && (
+                <>
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ type: "spring", delay: 0.1 }}
+                  >
+                    <CheckCircle2 className="h-16 w-16 text-success mx-auto mb-6" />
+                  </motion.div>
+                  <h3 className="text-2xl font-black text-foreground mb-2">Payment successful!</h3>
+                  <p className="text-sm text-muted-foreground mb-6">
+                    Your <span className="font-semibold text-foreground">{payment.plan}</span> plan is now active.
+                  </p>
+
+                  <div className="rounded-xl bg-primary/5 border border-primary/10 p-4 text-left text-sm mb-8 space-y-2">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Plan</span>
+                      <span className="font-bold text-foreground">{payment.plan}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Billing</span>
+                      <span className="font-bold text-foreground capitalize">{billing}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Total</span>
+                      <span className="font-bold text-foreground">
+                        {payment.price != null ? `$${payment.price}/month` : "Custom"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={handleGoToDashboard}
+                    className="w-full py-4 px-6 rounded-xl font-bold text-sm bg-primary text-primary-foreground shadow-primary-glow hover:opacity-90 transition-all"
+                  >
+                    Go to Dashboard
+                  </motion.button>
+                </>
+              )}
+
+              {payment.stage === "error" && (
+                <>
+                  <XCircle className="h-16 w-16 text-destructive mx-auto mb-6" />
+                  <h3 className="text-xl font-black text-foreground mb-2">Payment failed</h3>
+                  <p className="text-sm text-muted-foreground mb-8 break-words">{payment.message}</p>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
+                    onClick={() => setPayment(null)}
+                    className="w-full py-4 px-6 rounded-xl font-bold text-sm bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-all"
+                  >
+                    Try Again
+                  </motion.button>
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

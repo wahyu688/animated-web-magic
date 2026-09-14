@@ -307,6 +307,13 @@ TO authenticated;
 -- 4. ROW LEVEL SECURITY
 -- ============================================================
 
+-- Bersihkan policy dari migration lama (nama berbeda) agar tidak tersisa
+DROP POLICY IF EXISTS user_settings_select ON public.user_settings;
+DROP POLICY IF EXISTS user_settings_insert ON public.user_settings;
+DROP POLICY IF EXISTS user_settings_update ON public.user_settings;
+DROP POLICY IF EXISTS user_settings_delete ON public.user_settings;
+DROP POLICY IF EXISTS notifications_insert ON public.notifications;
+
 ALTER TABLE public.companies        ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.user_profiles    ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.company_members  ENABLE ROW LEVEL SECURITY;
