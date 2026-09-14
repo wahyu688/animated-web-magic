@@ -248,11 +248,15 @@ export default function LoginPage() {
               <form onSubmit={handleAuth} className="space-y-5">
                 <div className="space-y-1.5">
 
+                  <AnimatePresence initial={false}>
                   {!isLogin && (
                     <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: "auto" }}
-                      className="grid grid-cols-2 gap-4 mb-4"
+                      key="signup-name-fields"
+                      initial={{ opacity: 0, height: 0, marginBottom: 0 }}
+                      animate={{ opacity: 1, height: "auto", marginBottom: 16 }}
+                      exit={{ opacity: 0, height: 0, marginBottom: 0 }}
+                      transition={{ duration: 0.3, ease: "easeInOut" }}
+                      className="grid grid-cols-2 gap-4 overflow-hidden"
                     >
                       <div className="space-y-1.5">
                         <label className="block text-sm font-semibold text-foreground">
@@ -285,6 +289,7 @@ export default function LoginPage() {
                       </div>
                     </motion.div>
                   )}
+                  </AnimatePresence>
 
                   <label className="block text-sm font-semibold text-foreground">
                     Email

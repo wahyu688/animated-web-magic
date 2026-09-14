@@ -3,7 +3,9 @@ import { motion } from "framer-motion";
 import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
+import { useCompany } from "@/hooks/use-company";
 import { clearCompanyCache } from "@/lib/company";
+import InvitationPopup from "@/components/invitations/InvitationPopup";
 import { Repeat, BarChart3, ShieldCheck, Hexagon, Triangle, Circle, Square, Infinity as InfinityIcon } from "lucide-react";
 import dashboardImg from "../DashboardPreview.png";
 
@@ -12,7 +14,10 @@ export default function LandingPage() {
   const bgLight = "#fcfcfd";
   const navigate = useNavigate();
   const { user, refreshAuth } = useAuth();
+  const { companyId } = useCompany();
   const [pendingInvitesCount, setPendingInvitesCount] = useState(0);
+  const [isInviteOpen, setIsInviteOpen] = useState(false);
+  const [inviteRefreshKey, setInviteRefreshKey] = useState(0);
 
   useEffect(() => {
     let isMounted = true;
@@ -43,7 +48,7 @@ export default function LandingPage() {
     return () => {
       isMounted = false;
     };
-  }, [user?.email]);
+  }, [user?.email, inviteRefreshKey]);
 
   const handleLogout = async () => {
     try {
@@ -119,16 +124,21 @@ export default function LandingPage() {
               </div>
             ) : (
               <div className="flex items-center gap-3">
-                <Link
-                  to="/dashboard"
-                  className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
-                >
-                  Dashboard
-                </Link>
+                {companyId && (
+                  <Link
+                    to="/dashboard"
+                    className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
+                  >
+                    Dashboard
+                  </Link>
+                )}
                 {pendingInvitesCount > 0 && (
-                  <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+                  <button
+                    onClick={() => setIsInviteOpen(true)}
+                    className="inline-flex items-center px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold hover:bg-amber-200 transition-colors cursor-pointer"
+                  >
                     {pendingInvitesCount} invite{pendingInvitesCount > 1 ? "s" : ""}
-                  </span>
+                  </button>
                 )}
                 <button onClick={handleLogout} className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors">
                   Logout
@@ -285,6 +295,12 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+
+      <InvitationPopup
+        open={isInviteOpen}
+        onClose={() => setIsInviteOpen(false)}
+        onResolved={() => setInviteRefreshKey((k) => k + 1)}
+      />
     </div>
   );
 }

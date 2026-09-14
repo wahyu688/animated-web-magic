@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCompany } from "@/hooks/use-company";
 import { clearCompanyCache } from "@/lib/company";
+import InvitationPopup from "@/components/invitations/InvitationPopup";
 
 
 const plans = [
@@ -54,6 +55,8 @@ export default function PricingPage() {
   const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
   const [pendingInvitesCount, setPendingInvitesCount] = useState(0);
   const [payment, setPayment] = useState<PaymentState | null>(null);
+  const [isInviteOpen, setIsInviteOpen] = useState(false);
+  const [inviteRefreshKey, setInviteRefreshKey] = useState(0);
 
   const navigate = useNavigate();
   const { user, session, refreshAuth } = useAuth();
@@ -87,7 +90,7 @@ export default function PricingPage() {
     return () => {
       isMounted = false;
     };
-  }, [user?.email]);
+  }, [user?.email, inviteRefreshKey]);
 
   const handleLogout = async () => {
     try {
@@ -264,16 +267,21 @@ export default function PricingPage() {
             </div>
           ) : (
             <div className="flex items-center gap-3">
-              <Link
-                to="/dashboard"
-                className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
-              >
-                Dashboard
-              </Link>
+              {companyId && (
+                <Link
+                  to="/dashboard"
+                  className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
+                >
+                  Dashboard
+                </Link>
+              )}
               {pendingInvitesCount > 0 && (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+                <button
+                  onClick={() => setIsInviteOpen(true)}
+                  className="inline-flex items-center px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold hover:bg-amber-200 transition-colors cursor-pointer"
+                >
                   {pendingInvitesCount} invite{pendingInvitesCount > 1 ? "s" : ""}
-                </span>
+                </button>
               )}
               <button onClick={handleLogout} className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors">
                 Logout
@@ -400,6 +408,13 @@ export default function PricingPage() {
           </div>
         </div>
       </div>
+
+      {/* --- INVITATION POPUP --- */}
+      <InvitationPopup
+        open={isInviteOpen}
+        onClose={() => setIsInviteOpen(false)}
+        onResolved={() => setInviteRefreshKey((k) => k + 1)}
+      />
 
       {/* --- PAYMENT SIMULATION POPUP --- */}
       <AnimatePresence>
