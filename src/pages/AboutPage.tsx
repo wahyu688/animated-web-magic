@@ -18,26 +18,26 @@ const teamMembers = [
   {
     name: "Leandra Belva Varissa Perwira Negara",
     role: "Frontend Developer",
-    NIM: "2802499876",
-    image: "/team/leandra.jpeg"
+    NIM: "2802493033",
+    image: "/team/tama.png"
   },
   {
     name: "Andhani Tasya Assalwa Putri",
     role: "UI/UX Designer",
-    NIM: "2802470793",
-    image: "/team/salwa.jpeg"
+    NIM: "2802497435",
+    image: "/team/rifat.png"
   },
   {
     name: "Victor Jonathan Harianto",
     role: "System Analyst",
-    NIM: "2802447310",
-    image: "/team/jonathan.jpeg"
+    NIM: "2802498091",
+    image: "/team/bayu.png"
   },
   {
     name: "Jeff Adriel Panjaitan",
     role: "Quality Assurance",
-    NIM: "2802487964",
-    image: "/team/jeff.jpeg"
+    NIM: "2802496634",
+    image: "/team/geary.png"
   },
 ];
 
