@@ -16,25 +16,25 @@ const teamMembers = [
     image: "/team/wahyu.jpeg"
   },
   {
-    name: "Leandra Belva Varissa Perwira Negara",
+    name: "Valerian Hutama",
     role: "Frontend Developer",
     NIM: "2802493033",
     image: "/team/tama.png"
   },
   {
-    name: "Andhani Tasya Assalwa Putri",
+    name: "Rif’at Rifqi",
     role: "UI/UX Designer",
     NIM: "2802497435",
     image: "/team/rifat.png"
   },
   {
-    name: "Victor Jonathan Harianto",
+    name: "Bayu Arroyyan",
     role: "System Analyst",
     NIM: "2802498091",
     image: "/team/bayu.png"
   },
   {
-    name: "Jeff Adriel Panjaitan",
+    name: "Samuel Geary Lowfrint",
     role: "Quality Assurance",
     NIM: "2802496634",
     image: "/team/geary.png"
