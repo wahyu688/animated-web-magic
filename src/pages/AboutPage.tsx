@@ -6,40 +6,67 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useCompany } from "@/hooks/use-company";
 import { clearCompanyCache } from "@/lib/company";
 import InvitationPopup from "@/components/invitations/InvitationPopup";
-import { GraduationCap, BookOpen, Database, Users, Code2, Heart, ArrowLeft } from "lucide-react";
+import { Rocket, Briefcase, Users, Code2, Heart, Puzzle, Layers, Target } from "lucide-react";
 
 const teamMembers = [
   {
     name: "Wahyu A. Barmawi",
-    role: "Database / Fullstack Developer",
+    role: "Chief Technology Officer",
     NIM: "2802497800",
     image: "/team/wahyu.jpeg"
   },
   {
     name: "Valerian Hutama",
-    role: "Frontend Developer",
+    role: "Chief Operating Officer",
     NIM: "2802493033",
     image: "/team/tama.png"
   },
   {
     name: "Rif’at Rifqi",
-    role: "UI/UX Designer",
+    role: "Chief Marketing Officer",
     NIM: "2802497435",
     image: "/team/rifat.png"
   },
   {
     name: "Bayu Arroyyan",
-    role: "System Analyst",
+    role: "Chief Executive Officer",
     NIM: "2802498091",
     image: "/team/bayu.png"
   },
   {
     name: "Samuel Geary Lowfrint",
-    role: "Quality Assurance",
+    role: "Chief Financial Officer",
     NIM: "2802496634",
     image: "/team/geary.png"
   },
 ];
+
+const pillars = [
+  {
+    icon: Puzzle,
+    tone: "warning",
+    title: "The Problem",
+    desc: "Small teams track tasks in one app, schedules in another, and money in a spreadsheet. Information gets lost between tools, and nobody has a clear view of how the business is doing.",
+  },
+  {
+    icon: Layers,
+    tone: "primary",
+    title: "Our Solution",
+    desc: "One workspace for tasks, calendar, team roles, finances, and analytics, with each company's data kept separate and secure.",
+  },
+  {
+    icon: Target,
+    tone: "success",
+    title: "Who It's For",
+    desc: "Small and growing businesses that have outgrown spreadsheets and group chats, but don't need heavyweight enterprise software.",
+  },
+] as const;
+
+const toneClasses = {
+  primary: "bg-primary/10 text-primary",
+  warning: "bg-warning/10 text-warning",
+  success: "bg-success/10 text-success",
+} as const;
 
 export default function AboutPage() {
   const navigate = useNavigate();
@@ -190,53 +217,53 @@ export default function AboutPage() {
         
         {/* Header */}
         <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="text-center max-w-3xl mx-auto mb-16">
-          <h1 className="text-4xl md:text-5xl font-black text-foreground tracking-tight mb-6">About The Project</h1>
+          <h1 className="text-4xl md:text-5xl font-black text-foreground tracking-tight mb-6">About NexusFlow</h1>
           <p className="text-lg md:text-xl text-muted-foreground leading-relaxed">
-            NexusFlow is a comprehensive B2B SaaS platform built as a final project evaluation. Combining modern aesthetics with enterprise-grade architecture.
+            NexusFlow helps small teams run their projects, people, schedules, and finances from one workspace, instead of a pile of spreadsheets and group chats.
           </p>
         </motion.div>
 
         {/* Main Story Card */}
         <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
           
-          {/* Academic Context */}
+          {/* Our Story */}
           <motion.div variants={itemVariants} className="bg-card border border-border rounded-3xl p-8 md:p-10 shadow-sm relative overflow-hidden group">
             <div className="absolute -right-6 -top-6 opacity-[0.03] group-hover:opacity-10 transition-opacity duration-500 pointer-events-none">
-              <GraduationCap className="w-56 h-56 text-primary" />
+              <Rocket className="w-56 h-56 text-primary" />
             </div>
             <div className="relative z-10">
               <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-6 shadow-inner">
-                <BookOpen className="w-7 h-7 text-primary" />
+                <Rocket className="w-7 h-7 text-primary" />
               </div>
-              <h2 className="text-2xl font-bold text-foreground mb-4">Academic Purpose</h2>
+              <h2 className="text-2xl font-bold text-foreground mb-4">Our Story</h2>
               <p className="text-muted-foreground text-base leading-relaxed mb-6">
-                This application was developed to fulfill the <strong>Alternative Objective Learning (AOL)</strong> requirement for the <strong>Software Engineering</strong> course at <strong>BINUS University</strong>.
+                NexusFlow is a student startup built in the <strong>Venture Creation</strong> course at <strong>BINUS University</strong>. We're taking a working product and turning it into a business: finding out who needs it most, what they'd pay for it, and how to reach them.
               </p>
               <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/5 border border-primary/10 text-primary text-sm font-bold tracking-wide">
-                Semester 4
+                Venture Creation · Semester 5
               </div>
             </div>
           </motion.div>
 
-          {/* Specialization Context */}
+          {/* Cross-functional Team */}
           <motion.div variants={itemVariants} className="bg-card border border-border rounded-3xl p-8 md:p-10 shadow-sm relative overflow-hidden group">
             <div className="absolute -right-6 -top-6 opacity-[0.03] group-hover:opacity-10 transition-opacity duration-500 pointer-events-none">
-              <Database className="w-56 h-56 text-info" />
+              <Users className="w-56 h-56 text-info" />
             </div>
             <div className="relative z-10">
               <div className="w-14 h-14 rounded-2xl bg-info/10 flex items-center justify-center mb-6 shadow-inner">
-                <Database className="w-7 h-7 text-info" />
+                <Users className="w-7 h-7 text-info" />
               </div>
-              <h2 className="text-2xl font-bold text-foreground mb-4">Computer Science</h2>
+              <h2 className="text-2xl font-bold text-foreground mb-4">Two Disciplines, One Team</h2>
               <p className="text-muted-foreground text-base leading-relaxed mb-6">
-                Built by a team of Computer Science students specializing in <strong>Database Systems</strong>. This reflects in our choice to implement a robust Multi-Tenant PostgreSQL architecture with Row Level Security (RLS).
+                <strong>Computer Science</strong> students build and run the product. <strong>Information Systems</strong> students shape the business side: process analysis, market research, and how NexusFlow fits into the way companies actually work.
               </p>
               <div className="flex flex-wrap gap-3">
                 <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-info/10 text-info text-xs md:text-sm font-bold tracking-wide border border-info/20">
-                  <Code2 className="w-4 h-4" /> React + Tailwind
+                  <Code2 className="w-4 h-4" /> Computer Science
                 </span>
                 <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-success/10 text-success text-xs md:text-sm font-bold tracking-wide border border-success/20">
-                  <Database className="w-4 h-4" /> Supabase (PostgreSQL)
+                  <Briefcase className="w-4 h-4" /> Information Systems
                 </span>
               </div>
             </div>
@@ -244,11 +271,27 @@ export default function AboutPage() {
 
         </motion.div>
 
+        {/* Why We're Building This */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="mb-16">
+          <h2 className="text-3xl font-bold text-foreground text-center mb-10">Why We're Building This</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {pillars.map(({ icon: Icon, tone, title, desc }) => (
+              <div key={title} className="bg-card border border-border rounded-2xl p-6 md:p-8 shadow-sm">
+                <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-5 ${toneClasses[tone]}`}>
+                  <Icon className="w-6 h-6" />
+                </div>
+                <h3 className="text-lg font-bold text-foreground mb-2">{title}</h3>
+                <p className="text-muted-foreground text-sm md:text-base leading-relaxed">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </motion.div>
+
         {/* The Team Section */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-card border border-border rounded-3xl p-8 md:p-12 shadow-sm">
           <div className="flex items-center justify-center gap-4 mb-10">
             <Users className="w-8 h-8 text-primary" />
-            <h2 className="text-3xl font-bold text-foreground">Meet The Team</h2>
+            <h2 className="text-3xl font-bold text-foreground">Meet The Founders</h2>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
@@ -280,7 +323,7 @@ export default function AboutPage() {
         {/* Footer / Love Note */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }} className="text-center pt-10 pb-6 border-t border-border mt-16">
           <p className="text-sm md:text-base font-medium text-muted-foreground flex items-center justify-center gap-2">
-            Built with <Heart className="w-5 h-5 text-destructive fill-destructive animate-pulse" /> by the Database Streaming Team
+            Built with <Heart className="w-5 h-5 text-destructive fill-destructive animate-pulse" /> by the NexusFlow Team
           </p>
         </motion.div>
       </div>
