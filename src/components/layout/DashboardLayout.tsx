@@ -1,55 +1,57 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useLocation,Navigate } from "react-router-dom";
+import { useLocation, Navigate, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { RefreshCw } from "lucide-react";
 import { supabase } from "../../lib/supabase";
-import {
-  BarChart3, Calendar, ChevronLeft, Home, Kanban,
-  Bell, Search, Settings, Users, Zap, CreditCard, Activity, Menu, BookOpen, DollarSign, Loader2
-} from "lucide-react";
 import { useCompany } from "@/hooks/use-company";
-import { LogOut } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useWorkspaceSummary } from "@/hooks/use-workspace-summary";
 import { clearCompanyCache } from "@/lib/company";
 import DashboardSkeleton from "../DashboardSkeleton";
 import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
 import { useAuth } from "@/contexts/AuthContext";
+import AppSidebar from "./AppSidebar";
+import AppTopbar from "./AppTopbar";
+import CommandPalette from "./CommandPalette";
+import Banner from "@/components/feedback/Banner";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
-const navItems = [
-  { icon: Home, label: "Dashboard", path: "/dashboard" },
-  { icon: BarChart3, label: "Analytics", path: "/analytics" },
-  { icon: Kanban, label: "Project Board", path: "/kanban" },
-  { icon: Calendar, label: "Calendar", path: "/calendar" },
-  { icon: Users, label: "Team", path: "/team" },
-  { icon: Activity, label: "Activity", path: "/activity" },
-  { icon: Settings, label: "Settings", path: "/settings" },
-  { icon: DollarSign, label: "Financial", path: "/financial" },
-];
+const COLLAPSED_STORAGE_KEY = "nexusflow:sidebar-collapsed";
+
+function readCollapsed() {
+  try {
+    return window.localStorage.getItem(COLLAPSED_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
 }
 
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(readCollapsed);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
   const location = useLocation();
   const navigate = useNavigate();
-  
-  // -- LOGOUT BUTTON ---
-    const handleLogout = async () => {
+
+  const handleLogout = async () => {
     await supabase.auth.signOut();
     clearCompanyCache();
-
     navigate("/login");
   };
-  
+
   // --- STATE PROFIL & NOTIFIKASI ---
   const [profile, setProfile] = useState({ firstName: "Loading...", lastName: "", email: "..." });
   const [unreadCount, setUnreadCount] = useState(0);
   const isMountedRef = useRef(false);
-  const { companyId, isCompanyLoading, isCompanyRefreshing, companyError} = useCompany();
+  const { companyId, isCompanyLoading, isCompanyRefreshing, companyError, refreshCompany } = useCompany();
   const { user, isAuthRefreshing } = useAuth();
+  const workspace = useWorkspaceSummary(companyId);
 
   // --- EFFECT UNTUK PROFIL ---
   useEffect(() => {
@@ -57,13 +59,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     const fetchProfile = async () => {
       try {
         if (user && isMountedRef.current) {
-          // Ambil data dari tabel user_profiles
           const { data, error: profileError } = await withSupabaseTimeout(
             supabase.from("user_profiles").select('first_name, last_name').eq('id', user.id).maybeSingle(),
             "layout profile"
           );
           if (profileError) console.error("Profile fetch error:", profileError);
-          
+
           setProfile({
             firstName: data?.first_name || user.user_metadata?.first_name || "User",
             lastName: data?.last_name || user.user_metadata?.last_name || "",
@@ -76,7 +77,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     };
     fetchProfile();
 
-    
     return () => {
       isMountedRef.current = false;
     };
@@ -97,7 +97,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         .eq('unread', true),
       "layout unread notifications"
     );
-    
+
     if (error) {
       console.error("Unread notification count error:", error);
       return;
@@ -128,16 +128,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           table: 'notifications',
           filter: `company_id=eq.${companyId}`
         },
-        (payload) => {
-          console.log("[navbar realtime] new notification:", payload);
-
+        () => {
           setUnreadCount((prev) => prev + 1);
-
           fetchUnreadCount();
         }
       )
       .subscribe((status, error) => {
-        console.info("[navbar realtime] status:", status, error ?? "");
         if (status === 'SUBSCRIBED') fetchUnreadCount();
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           console.warn("[navbar realtime] disconnected; unread count will refresh on reconnect/page activity.", { status, error });
@@ -150,11 +146,46 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     };
   }, [companyId, fetchUnreadCount]);
 
-  // Membuat inisial nama (Misal: "Wahyu Saputra" jadi "WS")
-  const getInitials = () => {
-    const first = profile.firstName.charAt(0).toUpperCase();
-    const last = profile.lastName ? profile.lastName.charAt(0).toUpperCase() : '';
-    return `${first}${last}`;
+  // --- SHELL BEHAVIOUR ---
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(COLLAPSED_STORAGE_KEY, collapsed ? "1" : "0");
+    } catch {
+      // Storage unavailable (private mode); the toggle still works for this session.
+    }
+  }, [collapsed]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen((open) => !open);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    const goOnline = () => setIsOnline(true);
+    const goOffline = () => setIsOnline(false);
+    window.addEventListener("online", goOnline);
+    window.addEventListener("offline", goOffline);
+    return () => {
+      window.removeEventListener("online", goOnline);
+      window.removeEventListener("offline", goOffline);
+    };
+  }, []);
+
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [location.pathname]);
+
+  const fullName = [profile.firstName, profile.lastName].filter(Boolean).join(" ");
+  const accountProfile = {
+    fullName,
+    email: profile.email,
+    initials: `${profile.firstName.charAt(0)}${profile.lastName.charAt(0)}`.toUpperCase(),
   };
 
   if (isCompanyLoading && !companyId) {
@@ -164,159 +195,122 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   if (!companyId && !companyError) {
     return <Navigate to="/pricing" replace />;
   }
-  
+
+  const isRefreshing = isCompanyRefreshing || isAuthRefreshing || isResumeRecovering;
+
+  const sidebarProps = {
+    unreadCount,
+    workspace,
+    profile: accountProfile,
+    onLogout: handleLogout,
+  };
+
   return (
     <div className="flex h-screen overflow-hidden bg-background">
-      {(isCompanyRefreshing || isAuthRefreshing || isResumeRecovering) && (
-        <div className="fixed left-0 right-0 top-0 z-[9999] h-1 bg-primary/15">
-          <div className="h-full w-1/3 animate-pulse bg-primary" />
-        </div>
-      )}
+      {/* Desktop sidebar */}
+      <aside
+        className={cn(
+          "hidden shrink-0 border-r border-border transition-[width] duration-200 lg:block",
+          collapsed ? "w-[72px]" : "w-[248px]"
+        )}
+      >
+        <AppSidebar
+          {...sidebarProps}
+          collapsed={collapsed}
+          onToggleCollapsed={() => setCollapsed((value) => !value)}
+        />
+      </aside>
+
+      {/* Mobile drawer */}
       <AnimatePresence>
         {mobileOpen && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 bg-foreground/20 backdrop-blur-sm md:hidden"
-            onClick={() => setMobileOpen(false)}
-          />
+          <>
+            <motion.div
+              key="scrim"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="fixed inset-0 z-40 bg-[#0b1220]/45 lg:hidden"
+              onClick={() => setMobileOpen(false)}
+              aria-hidden="true"
+            />
+            <motion.aside
+              key="drawer"
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "tween", duration: 0.2, ease: "easeOut" }}
+              className="fixed inset-y-0 left-0 z-50 w-[288px] max-w-[85vw] shadow-lg lg:hidden"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Navigation"
+            >
+              <AppSidebar
+                {...sidebarProps}
+                onClose={() => setMobileOpen(false)}
+                onNavigate={() => setMobileOpen(false)}
+              />
+            </motion.aside>
+          </>
         )}
       </AnimatePresence>
 
-      <aside
-        className={`fixed md:relative z-50 h-full flex flex-col border-r border-border bg-card transition-all duration-300 ${
-          collapsed ? "w-[72px]" : "w-64"
-        } ${mobileOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"}`}
-      >
-        <div className="flex h-16 items-center justify-between border-b border-border px-4">
-          <Link to="/" className="flex items-center gap-3">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl gradient-primary shadow-primary-glow">
-              <Zap className="h-5 w-5 text-primary-foreground" />
-            </div>
-            {!collapsed && (
-              <motion.span
-                initial={{ opacity: 0, width: 0 }}
-                animate={{ opacity: 1, width: "auto" }}
-                exit={{ opacity: 0, width: 0 }}
-                className="text-lg font-bold tracking-tight text-foreground overflow-hidden"
-              >
-                Nexus<span className="text-primary">Flow</span>
-              </motion.span>
-            )}
-          </Link>
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            className="hidden md:flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-          >
-            <ChevronLeft className={`h-4 w-4 transition-transform ${collapsed ? "rotate-180" : ""}`} />
-          </button>
-        </div>
-
-        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
-          {navItems.map((item) => {
-            const isActive = location.pathname.startsWith(item.path);
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => setMobileOpen(false)}
-                className={`group flex items-center justify-between rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
-                  isActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <item.icon className={`h-5 w-5 shrink-0 transition-transform group-hover:scale-110 ${isActive ? "text-primary" : ""}`} />
-                  {!collapsed && <span className="truncate">{item.label}</span>}
-                </div>
-                
-                {!collapsed && item.label === "Activity" && unreadCount > 0 && (
-                  <span className="bg-primary text-primary-foreground text-[10px] px-2 py-0.5 rounded-full font-bold">
-                    {unreadCount}
-                  </span>
-                )}
-              </Link>
-            );
-          })}
-        </nav>
-
-        {/* --- PROFIL SIDEBAR DINAMIS --- */}
-        <div className="border-t border-border p-3">
-          <div className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-muted transition-colors cursor-pointer">
-            <div className="relative shrink-0">
-              <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-sm">
-                {getInitials()}
-              </div>
-              <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-success ring-2 ring-card" />
-            </div>
-            {!collapsed && (
-              <div className="flex-1 overflow-hidden">
-                <p className="text-sm font-semibold text-foreground truncate">
-                  {profile.firstName} {profile.lastName}
-                </p>
-                <p className="text-xs text-muted-foreground truncate">{profile.email}</p>
-              </div>
-            )}
+      <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        {isRefreshing && (
+          <div className="absolute inset-x-0 top-0 z-30 h-[3px] overflow-hidden bg-track" role="progressbar" aria-label="Refreshing">
+            <div className="h-full w-1/3 animate-loading-bar bg-primary motion-reduce:animate-none" />
           </div>
-        </div>
-      </aside>
+        )}
 
-      <div className="flex flex-1 flex-col overflow-hidden">
-        <header className="flex h-16 items-center justify-between border-b border-border bg-card/80 backdrop-blur-md px-4 md:px-6">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setMobileOpen(true)} className="md:hidden p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors">
-              <Menu className="h-5 w-5" />
-            </button>
-            <div className="relative hidden sm:block">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input placeholder="Search anything..." className="h-10 w-72 rounded-xl border-none bg-muted pl-10 pr-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all" />
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            
-             <button
-              onClick={handleLogout}
-              className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border bg-white hover:bg-muted transition-colors text-sm font-medium"
-            >
-              <LogOut className="h-4 w-4" />
-              Logout
-            </button>
-
-            <Link to="/activity" className="relative p-2 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors cursor-pointer block">
-              <Bell className="h-5 w-5" />
-              {unreadCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 h-2 w-2 rounded-full bg-destructive ring-2 ring-card animate-pulse" />
-              )}
-            </Link>
-            
-            <div className="h-8 w-px bg-border" />
-
-            {(isCompanyRefreshing || isAuthRefreshing || isResumeRecovering) && (
-              <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-            )}
-            
-            {/* --- PROFIL HEADER DINAMIS --- */}
-            <div className="h-9 w-9 rounded-full gradient-primary flex items-center justify-center text-primary-foreground font-bold text-sm cursor-pointer hover:opacity-90 transition-opacity">
-              {getInitials()}
-            </div>
-            
-          </div>
-        </header>
+        <AppTopbar
+          profile={accountProfile}
+          firstName={profile.firstName}
+          unreadCount={unreadCount}
+          onOpenSearch={() => setSearchOpen(true)}
+          onOpenMenu={() => setMobileOpen(true)}
+          onLogout={handleLogout}
+        />
 
         <main className="flex-1 overflow-y-auto">
+          {(companyError || !isOnline) && (
+            <div className="space-y-3 px-4 pt-6 sm:px-6 lg:px-8">
+              {companyError && (
+                <Banner
+                  tone="danger"
+                  title="Failed to load company context."
+                  description="Please refresh or sign in again."
+                  action={
+                    <Button variant="secondary" size="sm" onClick={() => void refreshCompany()} loading={isCompanyRefreshing}>
+                      {!isCompanyRefreshing && <RefreshCw strokeWidth={1.75} />}
+                      Refresh
+                    </Button>
+                  }
+                />
+              )}
+              {!isOnline && (
+                <Banner
+                  tone="info"
+                  title="Reconnecting…"
+                  description="Changes you make will sync when the connection is back."
+                />
+              )}
+            </div>
+          )}
+
           <motion.div
             key={location.pathname}
-            initial={{ opacity: 0, y: 12 }}
+            initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3, ease: "easeOut" }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
             className="h-full"
           >
             {children}
           </motion.div>
         </main>
       </div>
+
+      <CommandPalette open={searchOpen} onOpenChange={setSearchOpen} companyId={companyId} />
     </div>
   );
 }

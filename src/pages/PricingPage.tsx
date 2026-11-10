@@ -1,13 +1,22 @@
 import { useEffect, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
-import { Check, CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { motion } from "framer-motion";
+import { ArrowRight, Check, Mail, Minus, Plus, Sparkles } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCompany } from "@/hooks/use-company";
 import { clearCompanyCache } from "@/lib/company";
-import InvitationPopup from "@/components/invitations/InvitationPopup";
+import PublicNavbar from "@/components/public/PublicNavbar";
+import PublicFooter from "@/components/public/PublicFooter";
+import SectionHeading from "@/components/public/SectionHeading";
+import CheckoutDialog, { type PaymentState } from "@/components/public/pricing/CheckoutDialog";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 
+// Simulated payment length (no payment gateway yet).
+const PROCESSING_MS = 1600;
 
 const plans = [
   {
@@ -22,7 +31,8 @@ const plans = [
     name: "Professional",
     price: { monthly: 99, yearly: 79 },
     desc: "Perfect for scaling companies requiring advanced workflow.",
-    features: ["Everything in Starter, plus:", "Up to 20 Users", "100GB Cloud Storage", "Priority Support", "Advanced Analytics"],
+    featuresLead: "Everything in Starter, plus:",
+    features: ["Up to 20 Users", "100GB Cloud Storage", "Priority Support", "Advanced Analytics"],
     highlighted: true,
     cta: "Upgrade Now",
     badge: "Most Popular",
@@ -38,75 +48,55 @@ const plans = [
 ];
 
 const faqs = [
-  { q: "Can I change my plan later?", a: "Yes, you can upgrade or downgrade your plan at any time. Changes take effect at the start of your next billing cycle." },
+  { q: "Can I change my plan later?", a: "Yes. Upgrade or downgrade from Settings → Billing whenever you like. The new price applies from your next billing cycle." },
   { q: "What payment methods do you accept?", a: "We accept all major credit cards, PayPal, and wire transfers for Enterprise plans." },
   { q: "Is there a free trial?", a: "Yes! All plans include a 14-day free trial. No credit card required." },
 ];
 
+type Billing = "monthly" | "yearly";
 
-interface PaymentState {
-  stage: "processing" | "success" | "error";
-  plan: string;
-  price: number | null;
-  message?: string;
+function BillingToggle({ value, onChange }: { value: Billing; onChange: (value: Billing) => void }) {
+  const options: { value: Billing; label: string }[] = [
+    { value: "monthly", label: "Monthly" },
+    { value: "yearly", label: "Yearly" },
+  ];
+  return (
+    <div role="radiogroup" aria-label="Billing period" className="inline-flex items-center gap-0.5 rounded-[9px] border border-border bg-surface-2 p-[3px]">
+      {options.map((option) => {
+        const active = value === option.value;
+        return (
+          <button
+            key={option.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            onClick={() => onChange(option.value)}
+            className={cn(
+              "flex h-[34px] items-center gap-1.5 rounded-[7px] px-3.5 text-label transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              active ? "bg-card text-foreground shadow-xs" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {option.label}
+            {option.value === "yearly" && <Badge variant="success" size="sm">−20%</Badge>}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 export default function PricingPage() {
-  const [billing, setBilling] = useState<"monthly" | "yearly">("monthly");
-  const [pendingInvitesCount, setPendingInvitesCount] = useState(0);
+  const [billing, setBilling] = useState<Billing>("yearly");
   const [payment, setPayment] = useState<PaymentState | null>(null);
-  const [isInviteOpen, setIsInviteOpen] = useState(false);
-  const [inviteRefreshKey, setInviteRefreshKey] = useState(0);
 
   const navigate = useNavigate();
-  const { user, session, refreshAuth } = useAuth();
+  const { session } = useAuth();
   const { companyId, isCompanyLoading } = useCompany();
-
-  useEffect(() => {
-    let isMounted = true;
-    const loadInvites = async () => {
-      if (!user?.email) {
-        if (isMounted) setPendingInvitesCount(0);
-        return;
-      }
-      const normalizedEmail = user.email.toLowerCase().trim();
-      const { data, error } = await supabase
-        .from("invitations")
-        .select("id", { count: "exact" })
-        .eq("email", normalizedEmail)
-        .eq("status", "pending");
-
-      if (!isMounted) return;
-      if (error) {
-        console.error("Load pending invites error:", error);
-        setPendingInvitesCount(0);
-        return;
-      }
-      setPendingInvitesCount(data?.length ?? 0);
-    };
-
-    void loadInvites();
-
-    return () => {
-      isMounted = false;
-    };
-  }, [user?.email, inviteRefreshKey]);
-
-  const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-      clearCompanyCache();
-      await refreshAuth();
-      navigate("/", { replace: true });
-    } catch (error) {
-      console.error("Logout failed:", error);
-    }
-  };
 
   const handleSubscribe = async (planName: string, price: number | null) => {
     try {
       if (!session?.user) {
-        navigate("/login");
+        navigate("/login?mode=signup");
         return;
       }
 
@@ -135,7 +125,7 @@ export default function PricingPage() {
 
       // Simulasi proses pembayaran (project tugas — belum ada payment gateway)
       setPayment({ stage: "processing", plan: planName, price });
-      await new Promise((resolve) => setTimeout(resolve, 1600));
+      await new Promise((resolve) => setTimeout(resolve, PROCESSING_MS));
 
       // create workspace/company
       const { data: company, error: companyError } = await supabase
@@ -205,304 +195,149 @@ export default function PricingPage() {
   }, [companyId, isCompanyLoading, navigate, payment]);
 
   return (
-      <div className="min-h-screen bg-[#fcfcfd] text-slate-900">          
-      {/* --- NAVBAR --- */}
-      <nav
-        className="fixed top-0 left-0 right-0 z-50 border-b border-[#0f2ab3]/5"
-        style={{
-          background: "rgba(252,252,253,0.8)",
-          backdropFilter: "blur(12px)",
-        }}
-      >
-        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+    <div className="min-h-screen bg-background text-foreground">
+      <PublicNavbar />
 
-          <Link to="/" className="flex items-center gap-3">
-
-            <img
-              src="/nextflowIcon-Cd3kiR7z.ico"
-              alt="NexusFlow Logo"
-              className="w-11 h-11 object-contain"
-            />
-
-            <span className="text-xl font-black tracking-tight text-[#376CDD]">
-              NEXUSFLOW
-            </span>
-
-          </Link>
-
-          <div className="hidden md:flex items-center gap-10">
-            <Link
-              to="/"
-              className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
-            >
-              Home
-            </Link>
-
-            <Link
-              to="/pricing"
-              className="text-sm font-bold text-[#376CDD]"
-            >
-              Pricing
-            </Link>
-
-            <Link
-              to="/about"
-              className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
-            >
-              About
-            </Link>
+      <main>
+        <section className="bg-[linear-gradient(180deg,#e8eeff_0%,hsl(var(--background))_100%)] px-5 pb-12 pt-12 sm:px-6 sm:pt-20">
+          <SectionHeading
+            as="h1"
+            eyebrow="Pricing"
+            title="Simple, transparent pricing"
+            lead="Choose the plan that works best for your team. All plans include a 14-day free trial."
+            className="max-w-[600px]"
+            leadClassName="max-w-[560px]"
+          />
+          <div className="mt-5 flex justify-center">
+            <BillingToggle value={billing} onChange={setBilling} />
           </div>
+        </section>
 
-          {!user ? (
-            <div className="flex items-center gap-3">
-              <Link to="/login" className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors">
-                Login
-              </Link>
-              <Link
-                to="/login"
-                className="text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-lg transition-all hover:-translate-y-0.5 bg-[#376CDD]"
-              >
-                Get Started
-              </Link>
-            </div>
-          ) : (
-            <div className="flex items-center gap-3">
-              {companyId && (
-                <Link
-                  to="/dashboard"
-                  className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
-                >
-                  Dashboard
-                </Link>
-              )}
-              {pendingInvitesCount > 0 && (
-                <button
-                  onClick={() => setIsInviteOpen(true)}
-                  className="inline-flex items-center px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold hover:bg-amber-200 transition-colors cursor-pointer"
-                >
-                  {pendingInvitesCount} invite{pendingInvitesCount > 1 ? "s" : ""}
-                </button>
-              )}
-              <button onClick={handleLogout} className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors">
-                Logout
-              </button>
-            </div>
-          )}
+        <section className="px-5 sm:px-6">
+          <div className="mx-auto grid max-w-[1200px] items-center gap-6 lg:grid-cols-3">
+            {plans.map((plan, index) => {
+              const price = plan.price[billing];
+              const yearlySaving = plan.price.monthly != null && plan.price.yearly != null
+                ? (plan.price.monthly - plan.price.yearly) * 12
+                : null;
 
-        </div>
-      </nav>
-
-      <div className="px-6 lg:px-10 pb-10 pt-36 max-w-6xl mx-auto">        
-        {/* Header */}
-        <div className="text-center mb-12">
-          <motion.h1
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="text-4xl md:text-5xl font-black text-foreground tracking-tight mb-4 mt-2"
-          >
-            Simple, transparent pricing
-          </motion.h1>
-          <p className="text-muted-foreground text-lg max-w-2xl mx-auto mb-8">
-            Choose the plan that works best for your team. All plans include a 14-day free trial.
-          </p>
-
-          {/* Toggle */}
-          <div className="flex justify-center mb-10">
-            <div className="inline-flex items-center p-1.5 bg-card border border-border rounded-2xl shadow-sm">
-              <button
-                onClick={() => setBilling("monthly")}
-                className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${
-                  billing === "monthly" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Monthly
-              </button>
-              <button
-                onClick={() => setBilling("yearly")}
-                className={`px-6 py-2 rounded-xl text-sm font-bold transition-all ${
-                  billing === "yearly" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                Yearly <span className="ml-1 text-[10px] uppercase bg-success/20 text-success px-1.5 py-0.5 rounded-full">-20%</span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* Pricing Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch mb-20">
-          {plans.map((plan, i) => (
-            <motion.div
-              key={plan.name}
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.15 }}
-              className={`relative flex flex-col rounded-2xl bg-card p-8 transition-shadow duration-300 ${
-                plan.highlighted
-                  ? "border-2 border-primary shadow-card-hover scale-[1.02] z-10"
-                  : "border border-border shadow-card hover:shadow-card-hover"
-              }`}
-            >
-              {plan.badge && (
-                <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-primary text-primary-foreground text-xs font-bold px-4 py-1.5 rounded-full uppercase tracking-wider">
-                  {plan.badge}
-                </div>
-              )}
-              <div className={`mb-8 ${plan.badge ? "mt-2" : ""}`}>
-                <h3 className="text-primary text-lg font-bold mb-2">{plan.name}</h3>
-                <div className="flex items-baseline gap-1">
-                  {plan.price[billing] ? (
-                    <>
-                      <span className="text-4xl md:text-5xl font-black text-foreground">${plan.price[billing]}</span>
-                      <span className="text-muted-foreground font-medium">/month</span>
-                    </>
-                  ) : (
-                    <span className="text-4xl md:text-5xl font-black text-foreground">Custom</span>
+              return (
+                <motion.article
+                  key={plan.name}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.22, delay: index * 0.04, ease: "easeOut" }}
+                  className={cn(
+                    "flex flex-col gap-6 rounded-[20px] bg-card px-7",
+                    plan.highlighted ? "border-2 border-primary py-9 shadow-md" : "border border-border py-8 shadow-xs"
                   )}
-                </div>
-                <p className="text-sm text-muted-foreground mt-3">{plan.desc}</p>
-              </div>
-              <div className="flex-1 space-y-4 mb-10">
-                {plan.features.map((f, fi) => (
-                  <div key={fi} className="flex items-start gap-3 text-sm">
-                    <Check className="h-5 w-5 text-primary shrink-0" />
-                    <span className={fi === 0 && plan.highlighted ? "font-semibold text-primary" : "text-foreground"}>{f}</span>
+                >
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <h2 className="text-[19px] font-semibold leading-6 tracking-[-0.01em] text-foreground">{plan.name}</h2>
+                      {plan.badge && (
+                        <Badge variant="solid">
+                          <Sparkles strokeWidth={2} /> {plan.badge}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-[13px] leading-5 text-muted-foreground">{plan.desc}</p>
                   </div>
-                ))}
-              </div>
-              
-              <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={() => handleSubscribe(plan.name, plan.price[billing])}
-                  className={`w-full py-4 px-6 rounded-xl font-bold text-sm transition-all duration-200 ${
-                    plan.highlighted
-                      ? "bg-primary text-primary-foreground shadow-primary-glow hover:opacity-90"
-                      : "bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground"}`}>
-                  {plan.cta}
-              </motion.button>
 
-              {plan.highlighted && (
-                <p className="text-center text-[11px] text-muted-foreground mt-3">No credit card required for 14-day trial</p>
-              )}
-            </motion.div>
-          ))}
-        </div>
+                  <div className="space-y-3">
+                    <p className="flex items-end gap-1.5">
+                      {price != null ? (
+                        <>
+                          <span className="text-[44px] font-bold leading-[44px] tracking-[-0.03em] text-foreground tabular">${price}</span>
+                          <span className="pb-1.5 text-small text-muted-foreground">/month</span>
+                        </>
+                      ) : (
+                        <span className="text-[40px] font-bold leading-[44px] tracking-[-0.03em] text-foreground">Custom</span>
+                      )}
+                    </p>
+                    <p className={cn("text-caption font-normal", price != null && billing === "yearly" ? "text-success" : "text-muted-foreground")}>
+                      {price == null
+                        ? "Tailored to your team."
+                        : billing === "yearly"
+                          ? `Billed yearly. Save $${yearlySaving} a year.`
+                          : "Billed monthly. Cancel anytime."}
+                    </p>
+                  </div>
 
-        {/* FAQ */}
-        <div className="max-w-3xl mx-auto py-10">
-          <h2 className="text-2xl font-black text-foreground text-center mb-10">Frequently Asked Questions</h2>
-          <div className="space-y-4">
-            {faqs.map((faq) => (
-              <motion.div
-                key={faq.q}
-                initial={{ opacity: 0, y: 10 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                className="p-6 rounded-xl bg-card border border-border shadow-sm"
-              >
-                <h4 className="font-bold text-foreground mb-2">{faq.q}</h4>
-                <p className="text-sm text-muted-foreground leading-relaxed">{faq.a}</p>
-              </motion.div>
-            ))}
+                  <div className="space-y-2 text-center">
+                    <Button
+                      size="lg"
+                      variant={plan.highlighted ? "default" : "secondary"}
+                      className="w-full"
+                      onClick={() => handleSubscribe(plan.name, price)}
+                    >
+                      {plan.cta}
+                      {plan.highlighted && <ArrowRight className="!size-[18px]" />}
+                    </Button>
+                    {plan.highlighted && (
+                      <p className="text-caption font-normal text-muted-foreground">No credit card required for 14-day trial</p>
+                    )}
+                  </div>
+
+                  <div className="h-px bg-border" />
+
+                  <ul className="space-y-3">
+                    {plan.featuresLead && <li className="text-label text-foreground">{plan.featuresLead}</li>}
+                    {plan.features.map((feature) => (
+                      <li key={feature} className="flex items-center gap-2.5 text-small text-foreground">
+                        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-success-soft text-success">
+                          <Check className="h-3 w-3" strokeWidth={3} />
+                        </span>
+                        {feature}
+                      </li>
+                    ))}
+                  </ul>
+                </motion.article>
+              );
+            })}
           </div>
-        </div>
-      </div>
+        </section>
 
-      {/* --- INVITATION POPUP --- */}
-      <InvitationPopup
-        open={isInviteOpen}
-        onClose={() => setIsInviteOpen(false)}
-        onResolved={() => setInviteRefreshKey((k) => k + 1)}
+        <section className="px-5 py-16 sm:px-6 sm:py-24">
+          <div className="mx-auto flex max-w-[1200px] flex-col gap-8 lg:flex-row lg:gap-16">
+            <div className="space-y-3 lg:w-[360px] lg:shrink-0">
+              <h2 className="text-[28px] font-bold leading-[34px] tracking-[-0.025em] text-foreground sm:text-h2">Questions, answered</h2>
+              <p className="text-body text-muted-foreground">
+                Can't find what you need? Write to us and a founder will reply within a day.
+              </p>
+              <Button asChild variant="secondary">
+                <Link to="/about">
+                  <Mail strokeWidth={1.75} /> Contact Sales
+                </Link>
+              </Button>
+            </div>
+
+            <Accordion type="single" collapsible defaultValue={faqs[0].q} className="flex-1 overflow-hidden rounded-2xl border border-border bg-card">
+              {faqs.map((faq) => (
+                <AccordionItem key={faq.q} value={faq.q} className="border-b border-border last:border-b-0">
+                  <AccordionTrigger className="group gap-4 px-6 py-5 text-left text-[16px] font-semibold leading-[22px] text-foreground hover:no-underline [&>svg:last-child]:hidden">
+                    {faq.q}
+                    <Plus className="h-[18px] w-[18px] shrink-0 text-muted-foreground group-data-[state=open]:hidden" strokeWidth={1.75} />
+                    <Minus className="hidden h-[18px] w-[18px] shrink-0 text-muted-foreground group-data-[state=open]:block" strokeWidth={1.75} />
+                  </AccordionTrigger>
+                  <AccordionContent className="px-6 pb-5 text-body text-muted-foreground">{faq.a}</AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
+          </div>
+        </section>
+      </main>
+
+      <PublicFooter />
+
+      <CheckoutDialog
+        payment={payment}
+        billing={billing}
+        processingMs={PROCESSING_MS}
+        onCancel={() => setPayment(null)}
+        onRetry={() => payment && void handleSubscribe(payment.plan, payment.price)}
+        onGoToDashboard={handleGoToDashboard}
       />
-
-      {/* --- PAYMENT SIMULATION POPUP --- */}
-      <AnimatePresence>
-        {payment && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/50 backdrop-blur-sm px-4"
-          >
-            <motion.div
-              initial={{ opacity: 0, scale: 0.92, y: 16 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.92, y: 16 }}
-              transition={{ type: "spring", duration: 0.45 }}
-              className="w-full max-w-md rounded-2xl bg-card border border-border shadow-card-hover p-8 text-center"
-            >
-              {payment.stage === "processing" && (
-                <>
-                  <Loader2 className="h-14 w-14 text-primary animate-spin mx-auto mb-6" />
-                  <h3 className="text-xl font-black text-foreground mb-2">Processing payment…</h3>
-                  <p className="text-sm text-muted-foreground">
-                    Activating your <span className="font-semibold text-foreground">{payment.plan}</span> plan. Please wait a moment.
-                  </p>
-                </>
-              )}
-
-              {payment.stage === "success" && (
-                <>
-                  <motion.div
-                    initial={{ scale: 0 }}
-                    animate={{ scale: 1 }}
-                    transition={{ type: "spring", delay: 0.1 }}
-                  >
-                    <CheckCircle2 className="h-16 w-16 text-success mx-auto mb-6" />
-                  </motion.div>
-                  <h3 className="text-2xl font-black text-foreground mb-2">Payment successful!</h3>
-                  <p className="text-sm text-muted-foreground mb-6">
-                    Your <span className="font-semibold text-foreground">{payment.plan}</span> plan is now active.
-                  </p>
-
-                  <div className="rounded-xl bg-primary/5 border border-primary/10 p-4 text-left text-sm mb-8 space-y-2">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Plan</span>
-                      <span className="font-bold text-foreground">{payment.plan}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Billing</span>
-                      <span className="font-bold text-foreground capitalize">{billing}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Total</span>
-                      <span className="font-bold text-foreground">
-                        {payment.price != null ? `$${payment.price}/month` : "Custom"}
-                      </span>
-                    </div>
-                  </div>
-
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={handleGoToDashboard}
-                    className="w-full py-4 px-6 rounded-xl font-bold text-sm bg-primary text-primary-foreground shadow-primary-glow hover:opacity-90 transition-all"
-                  >
-                    Go to Dashboard
-                  </motion.button>
-                </>
-              )}
-
-              {payment.stage === "error" && (
-                <>
-                  <XCircle className="h-16 w-16 text-destructive mx-auto mb-6" />
-                  <h3 className="text-xl font-black text-foreground mb-2">Payment failed</h3>
-                  <p className="text-sm text-muted-foreground mb-8 break-words">{payment.message}</p>
-                  <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
-                    onClick={() => setPayment(null)}
-                    className="w-full py-4 px-6 rounded-xl font-bold text-sm bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-all"
-                  >
-                    Try Again
-                  </motion.button>
-                </>
-              )}
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }

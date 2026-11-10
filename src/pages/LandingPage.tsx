@@ -1,306 +1,345 @@
-import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
-import { useNavigate, Link } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/contexts/AuthContext";
-import { useCompany } from "@/hooks/use-company";
-import { clearCompanyCache } from "@/lib/company";
-import InvitationPopup from "@/components/invitations/InvitationPopup";
-import { Repeat, BarChart3, ShieldCheck, Hexagon, Triangle, Circle, Square, Infinity as InfinityIcon } from "lucide-react";
-import dashboardImg from "../DashboardPreview.png";
+import {
+  Activity, ArrowRight, BarChart3, Calendar, Check, DollarSign, Globe, Heart, Layers,
+  Plug, ShieldCheck, SquareKanban, Sun, Target, Users, type LucideIcon,
+} from "lucide-react";
+import PublicNavbar from "@/components/public/PublicNavbar";
+import PublicFooter from "@/components/public/PublicFooter";
+import SectionHeading from "@/components/public/SectionHeading";
+import {
+  ActivityIllustration, BoardIllustration, CalendarIllustration, FinancialIllustration, TeamIllustration,
+} from "@/components/public/landing/ModuleIllustrations";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+const reveal = {
+  initial: { opacity: 0, y: 16 },
+  whileInView: { opacity: 1, y: 0 },
+  viewport: { once: true, margin: "-80px" },
+  transition: { duration: 0.45, ease: "easeOut" },
+} as const;
+
+const trustedBy: { name: string; icon: LucideIcon }[] = [
+  { name: "Northwind", icon: Globe },
+  { name: "Lumen & Co", icon: Sun },
+  { name: "Orbital", icon: Target },
+  { name: "Kinfolk", icon: Heart },
+  { name: "Parcel", icon: Layers },
+];
+
+const iconTones = {
+  primary: "bg-primary-soft text-primary",
+  violet: "bg-violet-soft text-violet",
+  success: "bg-success-soft text-success",
+  info: "bg-info-soft text-info",
+  warning: "bg-warning-soft text-warning",
+};
+
+function IconTile({ icon: Icon, tone, solid = false }: { icon: LucideIcon; tone: keyof typeof iconTones; solid?: boolean }) {
+  return (
+    <span
+      className={cn(
+        "flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px]",
+        solid ? "bg-primary text-primary-foreground" : iconTones[tone]
+      )}
+    >
+      <Icon className="h-5 w-5" strokeWidth={1.75} />
+    </span>
+  );
+}
+
+const modules = [
+  {
+    icon: SquareKanban,
+    tone: "primary" as const,
+    title: "Project Board",
+    desc: "Five columns from Backlog to Done. Drag tasks across, add subtasks, assign owners and keep the conversation on the card.",
+    short: "Five columns from Backlog to Done, with owners, subtasks and comments.",
+    Illustration: BoardIllustration,
+    span: "lg:col-span-7",
+  },
+  {
+    icon: Calendar,
+    tone: "violet" as const,
+    title: "Calendar",
+    desc: "Day, week and month views. Double-click any slot to book it, and see what's next from the dashboard.",
+    short: "Day, week and month views for the whole team.",
+    Illustration: CalendarIllustration,
+    span: "lg:col-span-5",
+  },
+  {
+    icon: DollarSign,
+    tone: "success" as const,
+    title: "Financial → Dashboard",
+    desc: "Enter last month's revenue, customers and costs once. Profit, margin, churn and growth are calculated for you.",
+    short: "Log the month once. KPIs and charts update themselves.",
+    Illustration: FinancialIllustration,
+    span: "lg:col-span-4",
+  },
+  {
+    icon: Users,
+    tone: "info" as const,
+    title: "Team roles",
+    desc: "Invite colleagues by email and decide who can edit, who can view and who runs the workspace.",
+    short: "Invite by email and give each person the right access.",
+    Illustration: TeamIllustration,
+    span: "lg:col-span-4",
+  },
+  {
+    icon: Activity,
+    tone: "warning" as const,
+    title: "Activity feed",
+    desc: "Mentions, task moves and system events in one stream, with replies right where they happen.",
+    short: "Mentions, task moves and system events in one stream.",
+    Illustration: ActivityIllustration,
+    span: "lg:col-span-4",
+  },
+];
+
+const features = [
+  {
+    icon: Plug,
+    title: "Seamless Integration",
+    desc: "Connect your entire tech stack with our one-click native integrations and robust developer-first API.",
+  },
+  {
+    icon: BarChart3,
+    title: "Advanced Analytics",
+    desc: "Gain actionable insights with real-time data visualization, AI-driven summaries, and predictive modeling.",
+    featured: true,
+  },
+  {
+    icon: ShieldCheck,
+    title: "Automated Security",
+    desc: "Enterprise-grade protection with automated threat detection, end-to-end encryption, and compliance monitoring.",
+  },
+];
+
+const steps = [
+  { title: "Pick a plan", desc: "Start a 14-day free trial on Starter or Professional, or talk to us about Enterprise." },
+  { title: "Invite your team", desc: "Send invites by email and give each person a role: Admin, Editor or Viewer." },
+  { title: "Run it from one place", desc: "Plan on the board, schedule on the calendar, log numbers in Financial. The dashboard updates itself." },
+];
 
 export default function LandingPage() {
-  const brandColor = "#376CDD";
-  const bgLight = "#fcfcfd";
-  const navigate = useNavigate();
-  const { user, refreshAuth } = useAuth();
-  const { companyId } = useCompany();
-  const [pendingInvitesCount, setPendingInvitesCount] = useState(0);
-  const [isInviteOpen, setIsInviteOpen] = useState(false);
-  const [inviteRefreshKey, setInviteRefreshKey] = useState(0);
-
-  useEffect(() => {
-    let isMounted = true;
-    const loadInvites = async () => {
-      if (!user?.email) {
-        if (isMounted) setPendingInvitesCount(0);
-        return;
-      }
-
-      const normalizedEmail = user.email.toLowerCase().trim();
-      const { data, error } = await supabase
-        .from("invitations")
-        .select("id", { count: "exact" })
-        .eq("email", normalizedEmail)
-        .eq("status", "pending");
-
-      if (!isMounted) return;
-      if (error) {
-        console.error("Load pending invites error:", error);
-        setPendingInvitesCount(0);
-        return;
-      }
-
-      setPendingInvitesCount(data?.length ?? 0);
-    };
-
-    void loadInvites();
-    return () => {
-      isMounted = false;
-    };
-  }, [user?.email, inviteRefreshKey]);
-
-  const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-      clearCompanyCache();
-      await refreshAuth();
-      navigate("/", { replace: true });
-    } catch (error) {
-      console.error("Logout failed:", error);
-    }
-  };
-
   return (
-    <div className="min-h-screen text-slate-900 selection:bg-[#0f2ab3]/10 selection:text-[#0f2ab3]" style={{ backgroundColor: bgLight }}>
-      
-      {/* --- NAVIGATION --- */}
-      <nav
-          className="fixed top-0 left-0 right-0 z-50 border-b border-[#0f2ab3]/5"
-          style={{
-            background: "rgba(252,252,253,0.8)",
-            backdropFilter: "blur(12px)",
-          }}>
-          <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+    <div className="min-h-screen bg-background text-foreground">
+      <PublicNavbar />
 
-            <Link to="/" className="flex items-center gap-3">
+      <main>
+        {/* Hero */}
+        <section className="bg-[linear-gradient(180deg,#e8eeff_0%,hsl(var(--background))_100%)] px-5 pb-10 pt-10 sm:px-6 sm:pb-0 sm:pt-[88px]">
+          <div className="mx-auto flex max-w-[1200px] flex-col items-center gap-5 text-center sm:gap-7">
+            <motion.h1
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45 }}
+              className="max-w-[940px] text-[40px] font-bold leading-[44px] tracking-[-0.035em] sm:text-[56px] sm:leading-[60px] lg:text-display"
+            >
+              Scale your operations with intelligent precision.
+            </motion.h1>
 
-              <img
-                src="/nextflowIcon-Cd3kiR7z.ico"
-                alt="NexusFlow Logo"
-                className="w-11 h-11 object-contain"
-              />
+            <motion.p
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, delay: 0.1 }}
+              className="max-w-[620px] text-pretty text-[16px] leading-6 text-muted-foreground sm:text-[19px] sm:leading-[30px]"
+            >
+              The all-in-one platform for modern teams to automate workflows, analyze performance, and drive measurable growth.
+            </motion.p>
 
-              <span className="text-xl font-black tracking-tight text-[#376CDD]">
-                NEXUSFLOW
-              </span>
-
-            </Link>
-
-            <div className="hidden md:flex items-center gap-10">
-              <Link
-                to="/"
-                className="text-sm font-bold text-[#376CDD]"
-              >
-                Home
-              </Link>
-
-              <Link
-                to="/pricing"
-                className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
-              >
-                Pricing
-              </Link>
-
-              <Link
-                to="/about"
-                className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
-              >
-                About
-              </Link>
-            </div>
-
-            {!user ? (
-              <div className="flex items-center gap-3">
-                <Link to="/login" className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors">
-                  Login
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.45, delay: 0.15 }}
+              className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row"
+            >
+              <Button asChild size="lg">
+                <Link to="/login?mode=signup">
+                  Get Started Free <ArrowRight className="!size-[18px]" />
                 </Link>
-                <Link
-                  to="/login"
-                  className="text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-lg transition-all hover:-translate-y-0.5 bg-[#376CDD]"
-                >
-                  Get Started
-                </Link>
+              </Button>
+              <Button asChild size="lg" variant="secondary">
+                <a href="#product">Learn More</a>
+              </Button>
+            </motion.div>
+
+            <p className="text-small text-muted-foreground sm:hidden">14-day free trial · No credit card required</p>
+            <ul className="hidden items-center gap-5 text-small text-muted-foreground sm:flex">
+              {["14-day free trial", "No credit card required", "Set up in minutes"].map((item) => (
+                <li key={item} className="flex items-center gap-1.5">
+                  <Check className="h-3.5 w-3.5 text-success" strokeWidth={2.5} />
+                  {item}
+                </li>
+              ))}
+            </ul>
+
+            <motion.div
+              initial={{ opacity: 0, y: 24 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6, delay: 0.2 }}
+              className="relative mt-2 w-full rounded-[14px] border border-border bg-card p-1.5 shadow-lg sm:mt-6 sm:rounded-[20px] sm:p-2.5"
+            >
+              <div className="h-[230px] overflow-hidden rounded-[10px] border border-border bg-background sm:h-auto sm:max-h-[640px] sm:rounded-xl">
+                <img
+                  src="/landing/dashboard-preview.webp"
+                  alt="NexusFlow dashboard showing revenue, active users, session length and churn, a revenue growth chart and traffic sources"
+                  width={1440}
+                  height={1168}
+                  className="w-[640px] max-w-none sm:w-full sm:max-w-full"
+                />
               </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                {companyId && (
-                  <Link
-                    to="/dashboard"
-                    className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
-                  >
-                    Dashboard
-                  </Link>
-                )}
-                {pendingInvitesCount > 0 && (
-                  <button
-                    onClick={() => setIsInviteOpen(true)}
-                    className="inline-flex items-center px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold hover:bg-amber-200 transition-colors cursor-pointer"
-                  >
-                    {pendingInvitesCount} invite{pendingInvitesCount > 1 ? "s" : ""}
-                  </button>
-                )}
-                <button onClick={handleLogout} className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors">
-                  Logout
-                </button>
-              </div>
-            )}
-
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 hidden h-[220px] rounded-b-[20px] bg-gradient-to-b from-background/0 to-background sm:block" />
+            </motion.div>
           </div>
-        </nav>
+        </section>
 
-      {/* --- HERO SECTION --- */}
-      <section className="pt-48 pb-24 px-6 overflow-hidden">
-        <div className="max-w-5xl mx-auto text-center">
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }} className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#0f2ab3]/5 text-[#0f2ab3] text-xs font-bold tracking-wider uppercase mb-8 border border-[#0f2ab3]/10">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#0f2ab3] opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-[#0f2ab3]"></span>
-            </span>
-            New: AI Workflow Automation is here
-          </motion.div>
-          <motion.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.1 }} className="text-5xl md:text-7xl font-black leading-[1.1] tracking-[-0.035em] mb-8" style={{ color: brandColor }}>
-            Scale your operations with <br className="hidden md:block" /> intelligent precision.
-          </motion.h1>
-          <motion.p initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.2 }} className="text-lg md:text-xl text-slate-500 max-w-2xl mx-auto mb-12 leading-relaxed font-medium">
-            The all-in-one platform for modern teams to automate workflows, analyze performance, and drive measurable growth.
-          </motion.p>
-          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.3 }} className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link to="/login" className="w-full sm:w-auto px-8 py-4 text-white rounded-xl text-lg font-bold shadow-xl transition-all hover:scale-[1.02]" style={{ backgroundColor: brandColor, boxShadow: "0 20px 25px -5px rgba(15, 42, 179, 0.2)" }}>
-              Get Started Free
-            </Link>
-            <a href="#features" className="w-full sm:w-auto px-8 py-4 bg-white rounded-xl text-lg font-bold transition-all hover:bg-slate-50" style={{ color: brandColor, border: "1px solid rgba(15, 42, 179, 0.1)", boxShadow: "0 10px 15px -3px rgba(15, 42, 179, 0.05)" }}>
-              Learn More
-            </a>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* --- DASHBOARD PREVIEW --- */}
-      <motion.div 
-        initial={{ opacity: 0, y: 40 }} 
-        animate={{ opacity: 1, y: 0 }} 
-        transition={{ duration: 0.7, delay: 0.4 }} 
-        className="max-w-6xl mx-auto px-6 mb-32"
-      >
-        <div className="relative rounded-2xl overflow-hidden border border-[#0f2ab3]/10 shadow-2xl bg-white w-full">
-          
-          {/* Gambar Asli Aplikasi Anda */}
-          <img 
-            src={dashboardImg} 
-            alt="Xenith App Dashboard Preview" 
-            className="w-full h-auto object-cover"
-          />
-
-          {/* Efek Gradasi (Opsional) - Menyatukan gambar dengan background bawah. 
-              Jika gambar jadi terlalu pudar, Anda bisa MENGHAPUS baris di bawah ini. */}
-          <div className="absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-[#fcfcfd] to-transparent pointer-events-none"></div>
-
-        </div>
-      </motion.div>
-
-      {/* --- SOCIAL PROOF --- */}
-      <section className="py-20 border-y border-[#0f2ab3]/5" style={{ backgroundColor: "rgba(15, 42, 179, 0.02)" }}>
-        <div className="max-w-7xl mx-auto px-6">
-          <p className="text-center text-xs font-bold uppercase tracking-[0.2em] text-slate-400 mb-12">Trusted by industry leaders worldwide</p>
-          <div className="flex flex-wrap justify-center md:justify-between items-center gap-12 opacity-40 grayscale hover:grayscale-0 transition-all duration-500 text-slate-600">
-             {/* Menggunakan Lucide Icons sebagai placeholder logo perusahaan */}
-             <Hexagon className="w-10 h-10" />
-             <Triangle className="w-10 h-10" />
-             <Circle className="w-10 h-10" />
-             <Square className="w-10 h-10" />
-             <InfinityIcon className="w-12 h-12" />
-          </div>
-        </div>
-      </section>
-
-      {/* --- FEATURES SECTION --- */}
-      <section id="features" className="py-32 px-6">
-        <div className="max-w-7xl mx-auto">
-          <div className="mb-20">
-            <h2 className="text-3xl md:text-4xl font-black tracking-tight mb-4" style={{ color: brandColor }}>Engineered for Excellence</h2>
-            <p className="text-slate-500 text-lg max-w-2xl font-medium">Discover the tools designed to propel your business forward with unmatched efficiency and enterprise-grade reliability.</p>
-          </div>
-          <div className="grid md:grid-cols-3 gap-8">
-            {[
-              { icon: Repeat, title: "Seamless Integration", desc: "Connect your entire tech stack with our one-click native integrations and robust developer-first API." },
-              { icon: BarChart3, title: "Advanced Analytics", desc: "Gain actionable insights with real-time data visualization, AI-driven summaries, and predictive modeling." },
-              { icon: ShieldCheck, title: "Automated Security", desc: "Enterprise-grade protection with automated threat detection, end-to-end encryption, and compliance monitoring." }
-            ].map((feat, i) => (
-              <motion.div key={i} whileHover={{ y: -8 }} className="group p-8 bg-white border border-[#0f2ab3]/5 rounded-xl transition-all duration-300" style={{ boxShadow: "0 10px 15px -3px rgba(15, 42, 179, 0.05)" }}>
-                <div className="w-12 h-12 rounded-lg flex items-center justify-center mb-6 transition-colors duration-300 bg-[#0f2ab3]/10 group-hover:bg-[#0f2ab3] group-hover:text-white" style={{ color: brandColor }}>
-                  <feat.icon className="w-6 h-6" />
-                </div>
-                <h3 className="text-xl font-bold mb-3" style={{ color: brandColor }}>{feat.title}</h3>
-                <p className="text-slate-500 leading-relaxed font-medium">{feat.desc}</p>
-              </motion.div>
+        {/* Trusted by */}
+        <section className="hidden px-6 pb-[72px] pt-6 sm:block">
+          <p className="text-center text-label text-subtle">Trusted by growing teams at</p>
+          <ul className="mx-auto mt-6 flex max-w-[1200px] flex-wrap items-center justify-center gap-x-[72px] gap-y-6">
+            {trustedBy.map(({ name, icon: Icon }) => (
+              <li key={name} className="flex items-center gap-2 text-[20px] font-semibold tracking-[-0.01em] text-subtle/80">
+                <Icon className="h-5 w-5" strokeWidth={1.75} aria-hidden="true" />
+                {name}
+              </li>
             ))}
-          </div>
-        </div>
-      </section>
+          </ul>
+        </section>
 
-      {/* --- FOOTER --- */}
-      <footer className="bg-white border-t border-[#0f2ab3]/5 pt-20 pb-10">
-        <div className="max-w-7xl mx-auto px-6">
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-12 mb-20">
-            <div className="col-span-2">
-              <div className="flex items-center gap-2 mb-6">
-                <div className="p-1 rounded-lg" style={{ backgroundColor: brandColor }}>
-                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M44 11.2727C44 14.0109 39.8386 16.3957 33.69 17.6364C39.8386 18.877 44 21.2618 44 24C44 26.7382 39.8386 29.123 33.69 30.3636C39.8386 31.6043 44 33.9891 44 36.7273C44 40.7439 35.0457 44 24 44C12.9543 44 4 40.7439 4 36.7273C4 33.9891 8.16144 31.6043 14.31 30.3636C8.16144 29.123 4 26.7382 4 24C4 21.2618 8.16144 18.877 14.31 17.6364C8.16144 16.3957 4 14.0109 4 11.2727C4 7.25611 12.9543 4 24 4C35.0457 4 44 7.25611 44 11.2727Z" fill="currentColor"></path>
-                  </svg>
-                </div>
-                <span className="text-xl font-bold tracking-tight" style={{ color: brandColor }}>NEXUSFLOW</span>
-              </div>
-              <p className="text-slate-500 font-medium leading-relaxed max-w-xs mb-8">
-                The modern standard for operational intelligence. Built for teams that value speed, security, and growth.
+        {/* The product */}
+        <section id="product" className="scroll-mt-20 border-y border-border bg-card px-5 py-14 sm:px-6 sm:py-24">
+          <div className="mx-auto max-w-[1200px]">
+            <motion.div {...reveal}>
+              <SectionHeading
+                eyebrow="The product"
+                title="One workspace for the work that keeps you running"
+                lead="Tasks, schedules, people and numbers live in one place, so the dashboard is always telling the truth."
+              />
+            </motion.div>
+
+            <div className="mt-10 grid gap-4 sm:mt-12 sm:gap-6 lg:grid-cols-12">
+              {modules.map((module) => (
+                <motion.article
+                  key={module.title}
+                  {...reveal}
+                  className={cn(
+                    "flex gap-4 rounded-2xl border border-border bg-card p-5 shadow-xs sm:flex-col sm:gap-[18px] sm:p-7",
+                    module.span
+                  )}
+                >
+                  <IconTile icon={module.icon} tone={module.tone} />
+                  <div className="space-y-1 sm:space-y-2">
+                    <h3 className="text-card-title text-foreground sm:text-h3">{module.title}</h3>
+                    <p className="text-small text-muted-foreground sm:hidden">{module.short}</p>
+                    <p className="hidden text-body text-muted-foreground sm:block">{module.desc}</p>
+                  </div>
+                  <div className="hidden sm:block">
+                    <module.Illustration />
+                  </div>
+                </motion.article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Why NexusFlow */}
+        <section id="features" className="scroll-mt-20 px-5 py-14 sm:px-6 sm:py-24">
+          <div className="mx-auto max-w-[1200px]">
+            <motion.div {...reveal}>
+              <SectionHeading
+                eyebrow="Why NexusFlow"
+                title="Engineered for Excellence"
+                lead="Discover the tools designed to propel your business forward with unmatched efficiency and enterprise-grade reliability."
+              />
+            </motion.div>
+            <div className="mt-10 grid gap-4 sm:mt-12 sm:gap-6 md:grid-cols-3">
+              {features.map((feature) => (
+                <motion.article
+                  key={feature.title}
+                  {...reveal}
+                  className={cn(
+                    "space-y-4 rounded-2xl border border-border bg-card p-6 sm:p-7",
+                    feature.featured ? "shadow-md" : "shadow-xs"
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-11 w-11 items-center justify-center rounded-[10px]",
+                      feature.featured ? "bg-primary text-primary-foreground" : "bg-primary-soft text-primary"
+                    )}
+                  >
+                    <feature.icon className="h-5 w-5" strokeWidth={1.75} />
+                  </span>
+                  <h3 className="text-[20px] font-semibold leading-7 tracking-[-0.012em] text-foreground">{feature.title}</h3>
+                  <p className="text-body text-muted-foreground">{feature.desc}</p>
+                </motion.article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* How it works */}
+        <section className="px-5 pb-14 sm:px-6 sm:pb-24">
+          <div className="mx-auto max-w-[1200px]">
+            <motion.div {...reveal}>
+              <SectionHeading title="Up and running in an afternoon" />
+            </motion.div>
+            <ol className="mt-10 grid gap-8 md:grid-cols-3 md:gap-6">
+              {steps.map((step, index) => (
+                <motion.li
+                  key={step.title}
+                  {...reveal}
+                  className={cn("space-y-3.5 border-t-2 pt-6", index === 0 ? "border-primary" : "border-border")}
+                >
+                  <p className="text-label text-primary-text tabular">{String(index + 1).padStart(2, "0")}</p>
+                  <h3 className="text-[20px] font-semibold leading-7 tracking-[-0.012em] text-foreground">{step.title}</h3>
+                  <p className="text-body text-muted-foreground">{step.desc}</p>
+                </motion.li>
+              ))}
+            </ol>
+          </div>
+        </section>
+
+        {/* CTA */}
+        <section className="px-5 pb-14 sm:px-6 sm:pb-24">
+          <motion.div
+            {...reveal}
+            className="relative mx-auto flex max-w-[1200px] flex-col gap-8 overflow-hidden rounded-3xl bg-[linear-gradient(90deg,#0b1220_0%,#15245c_100%)] p-8 sm:p-14 lg:flex-row lg:items-center lg:justify-between lg:px-16"
+          >
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute -right-20 top-1/2 h-[420px] w-[420px] -translate-y-1/2 rounded-full bg-primary/50 blur-[120px]"
+            />
+            <div className="relative space-y-3">
+              <h2 className="text-balance text-[28px] font-bold leading-[34px] tracking-[-0.025em] text-white sm:text-h2">
+                Bring your team into one workspace.
+              </h2>
+              <p className="text-body text-white/75 sm:text-body-lg">
+                Start free for 14 days. Your data stays isolated to your company from the first login.
               </p>
             </div>
-            
-            {/* Footer Links */}
-            <div className="space-y-4">
-              <h4 className="text-sm font-bold uppercase tracking-widest" style={{ color: brandColor }}>Product</h4>
-              <ul className="space-y-3">
-                {["Features", "Pricing", "Integrations", "Changelog"].map(link => (
-                  <li key={link}><a className="text-slate-500 hover:text-[#0f2ab3] transition-colors text-sm font-medium" href="#">{link}</a></li>
-                ))}
-              </ul>
+            <div className="relative flex shrink-0 flex-col gap-3 sm:flex-row">
+              <Button asChild size="lg" className="bg-white text-[#0b1220] hover:bg-white/90 focus-visible:ring-white focus-visible:ring-offset-[#0b1220]">
+                <Link to="/login?mode=signup">
+                  Get Started Free <ArrowRight className="!size-[18px]" />
+                </Link>
+              </Button>
+              <Button
+                asChild
+                size="lg"
+                variant="ghost"
+                className="border border-white/20 bg-white/10 text-white hover:bg-white/15 hover:text-white focus-visible:ring-white focus-visible:ring-offset-[#0b1220]"
+              >
+                <Link to="/pricing">See pricing</Link>
+              </Button>
             </div>
-            <div className="space-y-4">
-              <h4 className="text-sm font-bold uppercase tracking-widest" style={{ color: brandColor }}>Company</h4>
-              <ul className="space-y-3">
-                {["About Us", "Careers", "Blog", "Press"].map(link => (
-                  <li key={link}><a className="text-slate-500 hover:text-[#0f2ab3] transition-colors text-sm font-medium" href="#">{link}</a></li>
-                ))}
-              </ul>
-            </div>
-            <div className="space-y-4">
-              <h4 className="text-sm font-bold uppercase tracking-widest" style={{ color: brandColor }}>Legal</h4>
-              <ul className="space-y-3">
-                {["Privacy Policy", "Terms of Service", "Cookie Policy"].map(link => (
-                  <li key={link}><a className="text-slate-500 hover:text-[#0f2ab3] transition-colors text-sm font-medium" href="#">{link}</a></li>
-                ))}
-              </ul>
-            </div>
-          </div>
-          
-          <div className="flex flex-col md:flex-row justify-between items-center pt-8 border-t border-[#0f2ab3]/5">
-            <p className="text-slate-400 text-sm font-medium mb-4 md:mb-0">© 2024 NexusFlow Inc. All rights reserved.</p>
-            <div className="flex items-center gap-6">
-              <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 text-[10px] font-black uppercase tracking-widest">
-                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
-                All Systems Operational
-              </span>
-            </div>
-          </div>
-        </div>
-      </footer>
+          </motion.div>
+        </section>
+      </main>
 
-      <InvitationPopup
-        open={isInviteOpen}
-        onClose={() => setIsInviteOpen(false)}
-        onResolved={() => setInviteRefreshKey((k) => k + 1)}
-      />
+      <PublicFooter variant="full" />
     </div>
   );
 }

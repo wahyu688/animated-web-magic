@@ -1,338 +1,198 @@
-import { useEffect, useState } from "react";
-import { motion, Variants } from "framer-motion";
-import { useNavigate, Link } from "react-router-dom";
-import { supabase } from "@/lib/supabase";
-import { useAuth } from "@/contexts/AuthContext";
-import { useCompany } from "@/hooks/use-company";
-import { clearCompanyCache } from "@/lib/company";
-import InvitationPopup from "@/components/invitations/InvitationPopup";
-import { Rocket, Briefcase, Users, Code2, Heart, Puzzle, Layers, Target } from "lucide-react";
+import { useState } from "react";
+import { motion } from "framer-motion";
+import { Heart, Layers, Puzzle, Rocket, Target, Users, type LucideIcon } from "lucide-react";
+import PublicNavbar from "@/components/public/PublicNavbar";
+import PublicFooter from "@/components/public/PublicFooter";
+import SectionHeading from "@/components/public/SectionHeading";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
-const teamMembers = [
-  {
-    name: "Wahyu A. Barmawi",
-    role: "Chief Technology Officer",
-    NIM: "2802497800",
-    image: "/team/wahyu.jpeg"
-  },
-  {
-    name: "Valerian Hutama",
-    role: "Chief Operating Officer",
-    NIM: "2802493033",
-    image: "/team/tama.png"
-  },
-  {
-    name: "Rif’at Rifqi",
-    role: "Chief Marketing Officer",
-    NIM: "2802497435",
-    image: "/team/rifat.png"
-  },
-  {
-    name: "Bayu Arroyyan",
-    role: "Chief Executive Officer",
-    NIM: "2802498091",
-    image: "/team/bayu.png"
-  },
-  {
-    name: "Samuel Geary Lowfrint",
-    role: "Chief Financial Officer",
-    NIM: "2802496634",
-    image: "/team/geary.png"
-  },
+const reveal = {
+  initial: { opacity: 0, y: 8 },
+  whileInView: { opacity: 1, y: 0 },
+  viewport: { once: true, margin: "-60px" },
+  transition: { duration: 0.22, ease: "easeOut" },
+} as const;
+
+const tones = {
+  primary: { soft: "bg-primary-soft", text: "text-primary-text", accent: "bg-primary-text" },
+  violet: { soft: "bg-violet-soft", text: "text-violet", accent: "bg-violet" },
+  warning: { soft: "bg-warning-soft", text: "text-warning", accent: "bg-warning" },
+  success: { soft: "bg-success-soft", text: "text-success", accent: "bg-success" },
+  info: { soft: "bg-info-soft", text: "text-info", accent: "bg-info" },
+};
+
+type Tone = keyof typeof tones;
+
+const founders: { name: string; role: string; title: string; nim: string; image: string; tone: Tone }[] = [
+  { name: "Wahyu A. Barmawi", role: "CTO", title: "Chief Technology Officer", nim: "2802497800", image: "/team/wahyu.jpeg", tone: "primary" },
+  { name: "Valerian Hutama", role: "COO", title: "Chief Operating Officer", nim: "2802493033", image: "/team/tama.png", tone: "success" },
+  { name: "Rif'at Rifqi", role: "CMO", title: "Chief Marketing Officer", nim: "2802497435", image: "/team/rifat.png", tone: "warning" },
+  { name: "Bayu Arroyyan", role: "CEO", title: "Chief Executive Officer", nim: "2802498091", image: "/team/bayu.png", tone: "violet" },
+  { name: "Samuel Geary Lowfrint", role: "CFO", title: "Chief Financial Officer", nim: "2802496634", image: "/team/geary.png", tone: "info" },
 ];
 
-const pillars = [
+const pillars: { icon: LucideIcon; tone: Tone; title: string; desc: string }[] = [
   {
     icon: Puzzle,
     tone: "warning",
     title: "The Problem",
-    desc: "Small teams track tasks in one app, schedules in another, and money in a spreadsheet. Information gets lost between tools, and nobody has a clear view of how the business is doing.",
+    desc: "Small teams keep tasks in one app, the schedule in another and the numbers in a spreadsheet. Nobody sees the whole picture.",
   },
   {
     icon: Layers,
     tone: "primary",
     title: "Our Solution",
-    desc: "One workspace for tasks, calendar, team roles, finances, and analytics, with each company's data kept separate and secure.",
+    desc: "One workspace for tasks, calendar, team roles and finances, with a dashboard that updates from the data you already enter.",
   },
   {
     icon: Target,
     tone: "success",
     title: "Who It's For",
-    desc: "Small and growing businesses that have outgrown spreadsheets and group chats, but don't need heavyweight enterprise software.",
+    desc: "Teams that have outgrown spreadsheets and group chats but don't need heavy enterprise software.",
   },
-] as const;
+];
 
-const toneClasses = {
-  primary: "bg-primary/10 text-primary",
-  warning: "bg-warning/10 text-warning",
-  success: "bg-success/10 text-success",
-} as const;
+function initialsOf(name: string) {
+  return name.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase();
+}
 
-export default function AboutPage() {
-  const navigate = useNavigate();
-  const { user, refreshAuth } = useAuth();
-  const { companyId } = useCompany();
-  const [pendingInvitesCount, setPendingInvitesCount] = useState(0);
-  const [isInviteOpen, setIsInviteOpen] = useState(false);
-  const [inviteRefreshKey, setInviteRefreshKey] = useState(0);
-
-  useEffect(() => {
-    let isMounted = true;
-    const loadInvites = async () => {
-      if (!user?.email) {
-        if (isMounted) setPendingInvitesCount(0);
-        return;
-      }
-      const normalizedEmail = user.email.toLowerCase().trim();
-      const { data, error } = await supabase
-        .from("invitations")
-        .select("id", { count: "exact" })
-        .eq("email", normalizedEmail)
-        .eq("status", "pending");
-
-      if (!isMounted) return;
-      if (error) {
-        console.error("Load pending invites error:", error);
-        setPendingInvitesCount(0);
-        return;
-      }
-      setPendingInvitesCount(data?.length ?? 0);
-    };
-
-    void loadInvites();
-    return () => {
-      isMounted = false;
-    };
-  }, [user?.email, inviteRefreshKey]);
-
-  const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-      clearCompanyCache();
-      await refreshAuth();
-      navigate("/", { replace: true });
-    } catch (error) {
-      console.error("Logout failed:", error);
-    }
-  };
-
-  const containerVariants: Variants = {
-    hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
-  };
-
-  const itemVariants: Variants = {
-    hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: "easeOut" } }
-  };
+function FounderAvatar({ founder }: { founder: (typeof founders)[number] }) {
+  const [failed, setFailed] = useState(false);
+  const tone = tones[founder.tone];
 
   return (
-    <div className="min-h-screen bg-[#fcfcfd] text-slate-900 pt-32">
-      <div className="max-w-5xl mx-auto space-y-10">
-        
-        {/* --- NAVBAR --- */}
-        <nav
-          className="fixed top-0 left-0 right-0 z-50 border-b border-[#0f2ab3]/5"
-          style={{
-            background: "rgba(252,252,253,0.8)",
-            backdropFilter: "blur(12px)",
-          }}>
-          <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+    <span className={cn("flex h-[88px] w-[88px] items-center justify-center overflow-hidden rounded-full", tone.soft)}>
+      {failed ? (
+        <span className={cn("text-[32px] font-semibold", tone.text)}>{initialsOf(founder.name)}</span>
+      ) : (
+        <img
+          src={founder.image}
+          alt=""
+          width={88}
+          height={88}
+          loading="lazy"
+          onError={() => setFailed(true)}
+          className="h-full w-full object-cover"
+        />
+      )}
+    </span>
+  );
+}
 
-            <Link to="/" className="flex items-center gap-3">
-
-              <img
-                src="/nextflowIcon-Cd3kiR7z.ico"
-                alt="NexusFlow Logo"
-                className="w-11 h-11 object-contain"
-              />
-
-              <span className="text-xl font-black tracking-tight text-[#376CDD]">
-                NEXUSFLOW
-              </span>
-
-            </Link>
-
-            <div className="hidden md:flex items-center gap-10">
-              <Link
-                to="/"
-                className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
-              >
-                Home
-              </Link>
-
-              <Link
-                to="/pricing"
-                className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
-              >
-                Pricing
-              </Link>
-
-              <Link
-                to="/about"
-                className="text-sm font-bold text-[#376CDD]"
-              >
-                About
-              </Link>
-            </div>
-
-            {!user ? (
-              <div className="flex items-center gap-3">
-                <Link to="/login" className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors">
-                  Login
-                </Link>
-                <Link
-                  to="/login"
-                  className="text-white px-6 py-2.5 rounded-lg text-sm font-bold shadow-lg transition-all hover:-translate-y-0.5 bg-[#376CDD]"
-                >
-                  Get Started
-                </Link>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                {companyId && (
-                  <Link
-                    to="/dashboard"
-                    className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors"
-                  >
-                    Dashboard
-                  </Link>
-                )}
-                {pendingInvitesCount > 0 && (
-                  <button
-                    onClick={() => setIsInviteOpen(true)}
-                    className="inline-flex items-center px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold hover:bg-amber-200 transition-colors cursor-pointer"
-                  >
-                    {pendingInvitesCount} invite{pendingInvitesCount > 1 ? "s" : ""}
-                  </button>
-                )}
-                <button onClick={handleLogout} className="text-sm font-medium text-slate-600 hover:text-[#0f2ab3] transition-colors">
-                  Logout
-                </button>
-              </div>
-            )}
-
-          </div>
-        </nav>
-        
-        {/* Header */}
-        <motion.div initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="text-center max-w-3xl mx-auto mb-16">
-          <h1 className="text-4xl md:text-5xl font-black text-foreground tracking-tight mb-6">About NexusFlow</h1>
-          <p className="text-lg md:text-xl text-muted-foreground leading-relaxed">
-            NexusFlow helps small teams run their projects, people, schedules, and finances from one workspace, instead of a pile of spreadsheets and group chats.
-          </p>
-        </motion.div>
-
-        {/* Main Story Card */}
-        <motion.div variants={containerVariants} initial="hidden" animate="visible" className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-16">
-          
-          {/* Our Story */}
-          <motion.div variants={itemVariants} className="bg-card border border-border rounded-3xl p-8 md:p-10 shadow-sm relative overflow-hidden group">
-            <div className="absolute -right-6 -top-6 opacity-[0.03] group-hover:opacity-10 transition-opacity duration-500 pointer-events-none">
-              <Rocket className="w-56 h-56 text-primary" />
-            </div>
-            <div className="relative z-10">
-              <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mb-6 shadow-inner">
-                <Rocket className="w-7 h-7 text-primary" />
-              </div>
-              <h2 className="text-2xl font-bold text-foreground mb-4">Our Story</h2>
-              <p className="text-muted-foreground text-base leading-relaxed mb-6">
-                NexusFlow is a student startup built in the <strong>Venture Creation</strong> course at <strong>BINUS University</strong>. We're taking a working product and turning it into a business: finding out who needs it most, what they'd pay for it, and how to reach them.
-              </p>
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-primary/5 border border-primary/10 text-primary text-sm font-bold tracking-wide">
-                Venture Creation · Semester 5
-              </div>
-            </div>
-          </motion.div>
-
-          {/* Cross-functional Team */}
-          <motion.div variants={itemVariants} className="bg-card border border-border rounded-3xl p-8 md:p-10 shadow-sm relative overflow-hidden group">
-            <div className="absolute -right-6 -top-6 opacity-[0.03] group-hover:opacity-10 transition-opacity duration-500 pointer-events-none">
-              <Users className="w-56 h-56 text-info" />
-            </div>
-            <div className="relative z-10">
-              <div className="w-14 h-14 rounded-2xl bg-info/10 flex items-center justify-center mb-6 shadow-inner">
-                <Users className="w-7 h-7 text-info" />
-              </div>
-              <h2 className="text-2xl font-bold text-foreground mb-4">Two Disciplines, One Team</h2>
-              <p className="text-muted-foreground text-base leading-relaxed mb-6">
-                <strong>Computer Science</strong> students build and run the product. <strong>Information Systems</strong> students shape the business side: process analysis, market research, and how NexusFlow fits into the way companies actually work.
-              </p>
-              <div className="flex flex-wrap gap-3">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-info/10 text-info text-xs md:text-sm font-bold tracking-wide border border-info/20">
-                  <Code2 className="w-4 h-4" /> Computer Science
-                </span>
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-success/10 text-success text-xs md:text-sm font-bold tracking-wide border border-success/20">
-                  <Briefcase className="w-4 h-4" /> Information Systems
-                </span>
-              </div>
-            </div>
-          </motion.div>
-
-        </motion.div>
-
-        {/* Why We're Building This */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="mb-16">
-          <h2 className="text-3xl font-bold text-foreground text-center mb-10">Why We're Building This</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {pillars.map(({ icon: Icon, tone, title, desc }) => (
-              <div key={title} className="bg-card border border-border rounded-2xl p-6 md:p-8 shadow-sm">
-                <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-5 ${toneClasses[tone]}`}>
-                  <Icon className="w-6 h-6" />
-                </div>
-                <h3 className="text-lg font-bold text-foreground mb-2">{title}</h3>
-                <p className="text-muted-foreground text-sm md:text-base leading-relaxed">{desc}</p>
-              </div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* The Team Section */}
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="bg-card border border-border rounded-3xl p-8 md:p-12 shadow-sm">
-          <div className="flex items-center justify-center gap-4 mb-10">
-            <Users className="w-8 h-8 text-primary" />
-            <h2 className="text-3xl font-bold text-foreground">Meet The Founders</h2>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-6">
-            {teamMembers.map((member, i) => (
-              <motion.div 
-                key={i}
-                whileHover={{ y: -5, scale: 1.02 }}
-                className="p-6 rounded-2xl bg-muted/30 border border-border hover:border-primary/40 hover:shadow-md transition-all flex flex-col items-center text-center gap-4"
-              >
-                <div className="w-24 h-24 rounded-full overflow-hidden shadow-lg ring-4 ring-background border border-border shrink-0">
-                  <img
-                    src={member.image}
-                    alt={member.name}
-                    className="w-full h-full object-cover"
-                  />
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg text-foreground mb-1">{member.name}</h3>
-                  <p className="text-sm text-primary font-bold mb-2">{member.role}</p>
-                  <div className="inline-block px-3 py-1 bg-background border border-border rounded-lg text-xs text-muted-foreground font-mono">
-                    NIM: {member.NIM}
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* Footer / Love Note */}
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.6 }} className="text-center pt-10 pb-6 border-t border-border mt-16">
-          <p className="text-sm md:text-base font-medium text-muted-foreground flex items-center justify-center gap-2">
-            Built with <Heart className="w-5 h-5 text-destructive fill-destructive animate-pulse" /> by the NexusFlow Team
-          </p>
-        </motion.div>
-      </div>
-
-      <InvitationPopup
-        open={isInviteOpen}
-        onClose={() => setIsInviteOpen(false)}
-        onResolved={() => setInviteRefreshKey((k) => k + 1)}
+function StoryCard({ icon: Icon, tone, title, children, chips }: {
+  icon: LucideIcon;
+  tone: Tone;
+  title: string;
+  children: React.ReactNode;
+  chips: string[];
+}) {
+  return (
+    <motion.article {...reveal} className="relative overflow-hidden rounded-[20px] border border-border bg-card p-7 shadow-xs sm:p-9">
+      <Icon
+        aria-hidden="true"
+        className="pointer-events-none absolute -right-8 -top-8 h-[200px] w-[200px] text-border"
+        strokeWidth={0.25}
       />
+      <div className="relative space-y-[18px]">
+        <span className={cn("flex h-12 w-12 items-center justify-center rounded-xl", tones[tone].soft, tones[tone].text)}>
+          <Icon className="h-6 w-6" strokeWidth={1.75} />
+        </span>
+        <h2 className="text-[24px] font-semibold leading-7 tracking-[-0.02em] text-foreground sm:text-[26px]">{title}</h2>
+        <p className="text-body text-muted-foreground sm:text-[17px] sm:leading-7 [&_b]:font-semibold [&_b]:text-foreground">{children}</p>
+        <div className="flex flex-wrap gap-2">
+          {chips.map((chip) => (
+            <Badge key={chip} variant={tone === "violet" ? "violet" : "default"}>{chip}</Badge>
+          ))}
+        </div>
+      </div>
+    </motion.article>
+  );
+}
+
+export default function AboutPage() {
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <PublicNavbar />
+
+      <main>
+        <section className="bg-[linear-gradient(180deg,#e8eeff_0%,hsl(var(--background))_100%)] px-5 pb-12 pt-12 sm:px-6 sm:pt-20">
+          <SectionHeading
+            as="h1"
+            eyebrow="About"
+            title="About NexusFlow"
+            lead="NexusFlow helps small teams run their projects, people, schedules, and finances from one workspace, instead of a pile of spreadsheets and group chats."
+            className="max-w-[640px]"
+          />
+        </section>
+
+        <section className="px-5 sm:px-6">
+          <div className="mx-auto grid max-w-[1200px] gap-6 md:grid-cols-2">
+            <StoryCard icon={Rocket} tone="primary" title="Our Story" chips={["Venture Creation · Semester 5"]}>
+              NexusFlow is a student startup built in the <b>Venture Creation</b> course at <b>BINUS University</b>. We're taking a
+              working product and turning it into a business: finding out who needs it most, what they'd pay for it, and how to reach them.
+            </StoryCard>
+            <StoryCard icon={Users} tone="violet" title="Two Disciplines, One Team" chips={["Computer Science", "Information Systems"]}>
+              <b>Computer Science</b> students build and run the product. <b>Information Systems</b> students shape the business side:
+              process analysis, market research, and how NexusFlow fits into the way companies actually work.
+            </StoryCard>
+          </div>
+        </section>
+
+        <section className="px-5 pt-16 sm:px-6 sm:pt-24">
+          <div className="mx-auto max-w-[1200px]">
+            <motion.div {...reveal}>
+              <SectionHeading title="Why We're Building This" />
+            </motion.div>
+            <div className="mt-10 grid gap-6 md:grid-cols-3">
+              {pillars.map((pillar) => (
+                <motion.article key={pillar.title} {...reveal} className="space-y-3.5 rounded-2xl border border-border bg-card p-7 shadow-xs">
+                  <span className={cn("block h-1 w-8 rounded-full", tones[pillar.tone].accent)} aria-hidden="true" />
+                  <span className={cn("flex h-11 w-11 items-center justify-center rounded-[11px]", tones[pillar.tone].soft, tones[pillar.tone].text)}>
+                    <pillar.icon className="h-[22px] w-[22px]" strokeWidth={1.75} />
+                  </span>
+                  <h3 className="text-[19px] font-semibold leading-6 tracking-[-0.01em] text-foreground">{pillar.title}</h3>
+                  <p className="text-body text-muted-foreground">{pillar.desc}</p>
+                </motion.article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="px-5 py-16 sm:px-6 sm:py-24">
+          <div className="mx-auto max-w-[1200px]">
+            <motion.div {...reveal}>
+              <SectionHeading title="Meet The Founders" lead="Five students, one product, and a lot of user interviews." />
+            </motion.div>
+            <ul className="mt-10 grid grid-cols-2 gap-4 sm:gap-5 md:grid-cols-3 lg:grid-cols-5">
+              {founders.map((founder) => (
+                <motion.li
+                  key={founder.nim}
+                  {...reveal}
+                  className="flex flex-col items-center gap-3.5 rounded-2xl border border-border bg-card px-4 pb-6 pt-7 text-center shadow-xs sm:px-5"
+                >
+                  <FounderAvatar founder={founder} />
+                  <div className="space-y-1">
+                    <p className="text-[15px] font-semibold leading-[22px] text-foreground sm:text-[16px]">{founder.name}</p>
+                    <p className="text-label text-primary-text">
+                      <abbr title={founder.title} className="no-underline">{founder.role}</abbr>
+                    </p>
+                  </div>
+                  <span className="rounded-md border border-border bg-surface-2 px-2 py-[3px] text-micro text-muted-foreground tabular">
+                    NIM: {founder.nim}
+                  </span>
+                </motion.li>
+              ))}
+            </ul>
+
+            <p className="mt-16 flex items-center justify-center gap-2 text-small text-muted-foreground">
+              Built with <Heart className="h-4 w-4 fill-destructive text-destructive" aria-label="love" /> by the NexusFlow Team
+            </p>
+          </div>
+        </section>
+      </main>
+
+      <PublicFooter />
     </div>
   );
 }

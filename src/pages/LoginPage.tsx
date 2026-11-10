@@ -1,40 +1,59 @@
-import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mail, Lock, ArrowRight, Loader2, Github, Chrome, CheckCircle2, AlertTriangle, X } from "lucide-react";
+import {
+  ArrowLeft, ArrowRight, CircleCheck, CircleX, Github, Globe, Lock, Mail, TrendingUp, X,
+} from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { clearCompanyCache } from "../lib/company";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCompany } from "@/hooks/use-company";
+import Logo from "@/components/brand/Logo";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 
-// --- KOMPONEN POP-UP NOTIFIKASI ---
-function FloatingAlert({ alert, onClose }: { alert: { type: 'success' | 'error', message: string } | null, onClose: () => void }) {
+const RESEND_COOLDOWN_S = 45;
+
+interface AlertState {
+  type: "success" | "error";
+  title: string;
+  message: string;
+}
+
+function FloatingAlert({ alert, onClose }: { alert: AlertState | null; onClose: () => void }) {
   return (
     <AnimatePresence>
       {alert && (
         <motion.div
-          // Animasi meluncur dari kanan
-          initial={{ opacity: 0, x: 50, scale: 0.9 }}
-          animate={{ opacity: 1, x: 0, scale: 1 }}
-          exit={{ opacity: 0, x: 20, scale: 0.9 }}
-          transition={{ type: "spring", stiffness: 400, damping: 25 }}
-          // Posisi di kanan atas (top-8 right-8)
-          className={`fixed top-8 right-8 z-[100] flex items-center gap-3 px-5 py-4 rounded-xl shadow-2xl border bg-white dark:bg-slate-900 ${
-            alert.type === 'success' 
-              ? 'border-green-200' 
-              : 'border-red-200'
-          }`}
-        >
-          {alert.type === 'success' ? (
-            <CheckCircle2 className="w-5 h-5 text-green-600" />
-          ) : (
-            <AlertTriangle className="w-5 h-5 text-red-500" />
+          role={alert.type === "error" ? "alert" : "status"}
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          className={cn(
+            "fixed left-4 right-4 top-4 z-[100] flex gap-3 rounded-xl border border-l-4 bg-card p-3.5 shadow-lg sm:left-auto sm:right-6 sm:top-6 sm:w-[360px]",
+            alert.type === "error" ? "border-destructive" : "border-success"
           )}
-          <span className="text-sm font-bold text-slate-800 dark:text-slate-100">
-            {alert.message}
-          </span>
-          <button onClick={onClose} className="ml-4 p-1 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full transition-colors">
-            <X className="w-4 h-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300" />
+        >
+          {alert.type === "error" ? (
+            <CircleX className="h-5 w-5 shrink-0 text-destructive" strokeWidth={1.75} />
+          ) : (
+            <CircleCheck className="h-5 w-5 shrink-0 text-success" strokeWidth={1.75} />
+          )}
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <p className="text-label text-foreground">{alert.title}</p>
+            <p className="text-small text-muted-foreground">{alert.message}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Dismiss"
+            className="h-6 w-6 shrink-0 rounded-md text-subtle transition-colors hover:bg-surface-2 hover:text-foreground"
+          >
+            <X className="mx-auto h-4 w-4" strokeWidth={1.75} />
           </button>
         </motion.div>
       )}
@@ -42,24 +61,111 @@ function FloatingAlert({ alert, onClose }: { alert: { type: 'success' | 'error',
   );
 }
 
+function BrandPanel() {
+  return (
+    <div className="relative hidden w-1/2 overflow-hidden bg-[#0b1220] text-white lg:block">
+      <div aria-hidden="true" className="absolute -left-40 -top-56 h-[620px] w-[620px] rounded-full bg-primary opacity-55 blur-[140px]" />
+      <div aria-hidden="true" className="absolute left-[380px] top-[420px] h-[520px] w-[520px] rounded-full bg-[#7a5cff] opacity-35 blur-[140px]" />
+      <div aria-hidden="true" className="absolute inset-0 bg-[#0b1220]/25" />
+
+      <div className="relative flex h-full min-h-screen flex-col justify-between p-12">
+        <Link to="/" aria-label="NexusFlow home" className="relative z-10 w-max rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white">
+          <Logo size="lg" tone="inverse" markClassName="h-7" />
+        </Link>
+
+        {/* Decorative product cards */}
+        <div aria-hidden="true" className="absolute inset-0">
+          <div className="absolute left-[99px] top-[174px] w-[250px] rotate-[3deg] space-y-2.5 rounded-[14px] border border-white/15 bg-white/[0.08] p-[18px] shadow-xs backdrop-blur-xl">
+            <p className="text-caption font-semibold text-[#b8c2d6]">Total Revenue</p>
+            <p className="text-kpi text-white">$174,000</p>
+            <div className="flex items-center gap-2">
+              <Badge variant="success"><TrendingUp strokeWidth={2.25} /> +12.3%</Badge>
+              <svg viewBox="0 0 90 26" className="h-[26px] w-[90px] text-[#45cf95]" fill="none" stroke="currentColor" strokeWidth="1.75">
+                <path d="M1 22c10-1 14-4 22-3s12 3 20-1 12-5 20-6 14-6 26-11" strokeLinecap="round" />
+              </svg>
+            </div>
+          </div>
+          <div className="absolute left-[358px] top-[306px] w-[270px] -rotate-[2.5deg] space-y-2.5 rounded-[14px] border border-white/15 bg-white/[0.08] p-4">
+            <div className="flex gap-1.5">
+              <Badge variant="info" size="sm">Backend</Badge>
+              <Badge variant="destructive" size="sm">High</Badge>
+            </div>
+            <p className="text-sm font-semibold leading-[18px] text-white">Sync Financial entries to dashboard charts</p>
+            <div className="h-1 overflow-hidden rounded-full bg-[#e9ecf1]">
+              <div className="h-full w-3/5 rounded-full bg-[#5b7bff]" />
+            </div>
+          </div>
+        </div>
+
+        <div className="relative max-w-[624px] space-y-[18px]">
+          <h2 className="text-[36px] font-bold leading-[42px] tracking-[-0.025em]">
+            Scale your operations with intelligent precision.
+          </h2>
+          <p className="text-[15px] leading-6 text-[#b8c2d6]">
+            NexusFlow transforms how engineering and product teams collaborate with realtime analytics, intelligent workflows, and seamless productivity tools.
+          </p>
+          <div className="flex items-center gap-3">
+            <div className="flex -space-x-2" aria-hidden="true">
+              {[
+                ["VH", "bg-success-soft text-success"],
+                ["RR", "bg-warning-soft text-warning"],
+                ["BA", "bg-violet-soft text-violet"],
+                ["SG", "bg-info-soft text-info"],
+              ].map(([initials, tone]) => (
+                <span key={initials} className={cn("flex h-8 w-8 items-center justify-center rounded-full text-[11px] font-semibold ring-2 ring-[#0b1220]", tone)}>
+                  {initials}
+                </span>
+              ))}
+            </div>
+            <p className="text-label text-white">Joined by 10,000+ teams</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IconInput({ icon: Icon, ...props }: React.ComponentProps<typeof Input> & { icon: typeof Mail }) {
+  return (
+    <div className="relative">
+      <Icon className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle" strokeWidth={1.75} />
+      <Input {...props} className="pl-9" />
+    </div>
+  );
+}
+
 export default function LoginPage() {
+  const [searchParams] = useSearchParams();
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
-  const [isLogin, setIsLogin] = useState(true);
+  const [isLogin, setIsLogin] = useState(searchParams.get("mode") !== "signup");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  
-  const [alert, setAlert] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [resendIn, setResendIn] = useState(0);
+  const [isResending, setIsResending] = useState(false);
+
+  const [alert, setAlert] = useState<AlertState | null>(null);
   const navigate = useNavigate();
   const { session, isAuthLoading } = useAuth();
   const { companyId, isCompanyLoading } = useCompany();
 
-  const showAlert = (type: 'success' | 'error', message: string) => {
-    setAlert({ type, message });
-    setTimeout(() => setAlert(null), 4000);
+  const showAlert = (type: AlertState["type"], title: string, message: string) => {
+    setAlert({ type, title, message });
   };
+
+  useEffect(() => {
+    if (!alert) return;
+    const timer = window.setTimeout(() => setAlert(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [alert]);
+
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const timer = window.setTimeout(() => setResendIn((seconds) => seconds - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendIn]);
 
   useEffect(() => {
     if (!isAuthLoading && !isCompanyLoading && session) {
@@ -73,10 +179,10 @@ export default function LoginPage() {
 
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    setAlert(null); 
+    setAlert(null);
 
     if (!email || !password) {
-      showAlert('error', "Please enter your email and password.");
+      showAlert("error", "Missing details", "Please enter your email and password.");
       return;
     }
 
@@ -87,12 +193,12 @@ export default function LoginPage() {
       if (isLogin) {
         const { error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
         if (error) throw error;
-        
+
         clearCompanyCache();
-        showAlert('success', "Welcome back! Redirecting...");
+        showAlert("success", "Welcome back!", "Redirecting to your workspace…");
       } else {
-        const { data, error } = await supabase.auth.signUp({ 
-          email: normalizedEmail, 
+        const { data, error } = await supabase.auth.signUp({
+          email: normalizedEmail,
           password,
           options: {
             data: {
@@ -104,271 +210,229 @@ export default function LoginPage() {
         if (error) throw error;
 
         if (data.user && data.user.identities && data.user.identities.length === 0) {
-           showAlert('error', "This email is already registered.");
+          showAlert("error", "Couldn't create account", "This email is already registered.");
         } else if (data.user) {
-           clearCompanyCache();
+          clearCompanyCache();
 
-           if (data.session) {
-             showAlert('success', "Account created. Redirecting...");
-           } else {
-             setIsSuccess(true);
-           }
+          if (data.session) {
+            showAlert("success", "Account created", "Redirecting…");
+          } else {
+            setIsSuccess(true);
+            setResendIn(RESEND_COOLDOWN_S);
+          }
         }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Authentication failed.";
-      showAlert('error', message);
+      showAlert("error", isLogin ? "Couldn't sign in" : "Couldn't create account", message);
     } finally {
       setIsLoading(false);
     }
   };
 
+  const handleResend = async () => {
+    setIsResending(true);
+    try {
+      const { error } = await supabase.auth.resend({ type: "signup", email: email.trim().toLowerCase() });
+      if (error) throw error;
+      showAlert("success", "Email sent", "We've sent you a new confirmation link.");
+      setResendIn(RESEND_COOLDOWN_S);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Please try again in a moment.";
+      showAlert("error", "Couldn't resend email", message);
+    } finally {
+      setIsResending(false);
+    }
+  };
+
   const handleSocialLogin = (provider: string) => {
-    showAlert('error', `${provider} login is not configured yet.`);
+    showAlert("error", "Sign-in unavailable", `${provider} login is not configured yet.`);
+  };
+
+  const switchMode = () => {
+    setAlert(null);
+    setIsLogin((value) => !value);
   };
 
   return (
-    <div className="min-h-screen flex bg-background-light relative">
-      
-      {/* POP-UP MEMANGGIL KOMPONEN DI ATAS */}
+    <div className="flex min-h-screen bg-card">
       <FloatingAlert alert={alert} onClose={() => setAlert(null)} />
+      <BrandPanel />
 
-      {/* --- BAGIAN KIRI: VIDEO BRANDING --- */}
-      <div className="hidden lg:flex lg:w-1/2 relative overflow-hidden flex-col justify-between text-white">
-
-        {/* VIDEO BACKGROUND */}
-        <video
-          autoPlay
-          muted
-          loop
-          playsInline
-          className="absolute inset-0 w-full h-full object-cover"
-        >
-          <source src="/videos/LoginPage.mp4" type="video/mp4" />
-        </video>
-
-        {/* DARK OVERLAY */}
-        <div className="absolute inset-0 bg-black/40 z-[1]" />
-
-        {/* GRADIENT OVERLAY */}
-        <div className="absolute inset-0 bg-gradient-to-br from-primary/70 via-primary/40 to-black/60 z-[2]" />
-
-        {/* CONTENT */}
-        <div className="relative z-10 flex flex-col justify-between h-full p-12">
-
-          {/* LOGO */}
-          <Link
-            to="/"
-            className="flex items-center gap-2 w-max cursor-pointer hover:opacity-90 transition-opacity"
-          >
-          <img
-            src="/nextflowIcon-Cd3kiR7z.ico"
-            alt="NexusFlow Logo"
-            className="w-12 h-12 object-contain"
-          />
-
-            <span className="text-2xl font-bold tracking-tight">
-              NEXUSFLOW
-            </span>
-          </Link>
-
-          {/* HERO CONTENT */}
-          <div className="max-w-xl">
-
-            <motion.h2
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.2 }}
-              className="text-5xl font-black leading-tight mb-6"
-            >
-              Scale your operations with intelligent precision.
-            </motion.h2>
-
-            <motion.p
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.3 }}
-              className="text-white/80 text-lg leading-relaxed mb-8"
-            >
-              NexusFlow transforms how engineering and product teams collaborate with realtime analytics, intelligent workflows, and seamless productivity tools.
-            </motion.p>
-
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 0.4 }}
-              className="flex items-center gap-4"
-            >
-              <div className="flex -space-x-3">
-                <div className="w-10 h-10 rounded-full border-2 border-white/20 bg-blue-300"></div>
-                <div className="w-10 h-10 rounded-full border-2 border-white/20 bg-indigo-300"></div>
-                <div className="w-10 h-10 rounded-full border-2 border-white/20 bg-violet-300"></div>
-              </div>
-
-              <div className="text-sm font-medium text-white/80">
-                Joined by 10,000+ teams
-              </div>
-            </motion.div>
-
-          </div>
-
+      <div className="flex min-h-screen w-full flex-col px-5 py-6 sm:px-12 sm:py-8 lg:w-1/2">
+        <div>
+          <Button asChild variant="ghost" size="sm" className="-ml-3">
+            <Link to="/">
+              <ArrowLeft /> Back
+            </Link>
+          </Button>
         </div>
-      </div>
 
-      {/* --- BAGIAN KANAN: FORM LOGIN/REGISTER --- */}
-      <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 relative">
-        <Link to="/" className="lg:hidden absolute top-6 left-6 text-sm font-semibold text-muted-foreground hover:text-primary transition-colors">
-          ← Back
-        </Link>
-
-        <div className="w-full max-w-md">
-          {isSuccess ? (
-             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="text-center bg-card p-8 rounded-2xl shadow-card border border-border">
-               <div className="w-16 h-16 bg-success/10 text-success rounded-full flex items-center justify-center mx-auto mb-6">
-                 <CheckCircle2 className="w-8 h-8" />
-               </div>
-               <h3 className="text-2xl font-bold text-foreground mb-2">Check your email</h3>
-               <p className="text-muted-foreground mb-6">We've sent a confirmation link to <strong>{email}</strong>. Please verify your account to continue.</p>
-               <button onClick={() => {setIsSuccess(false); setIsLogin(true);}} className="w-full py-3 bg-primary text-white rounded-xl font-bold hover:bg-primary/90 transition-colors">
-                 Back to Sign In
-               </button>
-             </motion.div>
-          ) : (
-            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-              
-              <div className="text-center mb-8">
-                <h1 className="text-3xl font-black text-foreground mb-2">
-                  {isLogin ? "Welcome back" : "Create an account"}
-                </h1>
-                <p className="text-muted-foreground">
-                  {isLogin ? "Enter your details to access your dashboard." : "Start your 14-day free trial. No credit card required."}
-                </p>
-              </div>
-
-              <form onSubmit={handleAuth} className="space-y-5">
-                <div className="space-y-1.5">
-
-                  <AnimatePresence initial={false}>
-                  {!isLogin && (
-                    <motion.div
-                      key="signup-name-fields"
-                      initial={{ opacity: 0, height: 0, marginBottom: 0 }}
-                      animate={{ opacity: 1, height: "auto", marginBottom: 16 }}
-                      exit={{ opacity: 0, height: 0, marginBottom: 0 }}
-                      transition={{ duration: 0.3, ease: "easeInOut" }}
-                      className="grid grid-cols-2 gap-4 overflow-hidden"
+        <div className="flex flex-1 items-center justify-center py-10">
+          <div className="w-full max-w-[400px]">
+            {isSuccess ? (
+              <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }} className="space-y-6">
+                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-success-soft text-success">
+                  <Mail className="h-6 w-6" strokeWidth={1.75} />
+                </span>
+                <div className="space-y-2">
+                  <h1 className="text-[32px] font-bold leading-[42px] tracking-[-0.025em] text-foreground">Check your email</h1>
+                  <p className="text-body text-muted-foreground">
+                    We've sent a confirmation link to <b className="font-semibold text-foreground">{email}</b>. Please verify your account to continue.
+                  </p>
+                </div>
+                <Button
+                  size="lg"
+                  className="w-full"
+                  onClick={() => {
+                    setIsSuccess(false);
+                    setIsLogin(true);
+                  }}
+                >
+                  <ArrowLeft className="!size-[18px]" /> Back to Sign In
+                </Button>
+                <p className="text-small text-muted-foreground" aria-live="polite">
+                  Didn't get it? Check spam, or{" "}
+                  {resendIn > 0 ? (
+                    <>resend in <span className="tabular">{resendIn}s</span>.</>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={handleResend}
+                      disabled={isResending}
+                      className="font-semibold text-primary-text hover:underline disabled:opacity-60"
                     >
-                      <div className="space-y-1.5">
-                        <label className="block text-sm font-semibold text-foreground">
-                          First Name
-                        </label>
+                      {isResending ? "sending…" : "resend the email"}
+                    </button>
+                  )}
+                </p>
+              </motion.div>
+            ) : (
+              <motion.div key={isLogin ? "signin" : "signup"} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.22 }}>
+                <div className="mb-[22px] space-y-2">
+                  <h1 className="text-[32px] font-bold leading-[42px] tracking-[-0.025em] text-foreground">
+                    {isLogin ? "Welcome back" : "Create an account"}
+                  </h1>
+                  <p className="text-body text-muted-foreground">
+                    {isLogin ? "Enter your details to access your dashboard." : "Start your 14-day free trial. No credit card required."}
+                  </p>
+                </div>
 
-                        <input
-                          type="text"
+                <form onSubmit={handleAuth} className="space-y-[22px]" noValidate={false}>
+                  {!isLogin && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="first-name">First Name</Label>
+                        <Input
+                          id="first-name"
+                          autoComplete="given-name"
                           value={firstName}
                           onChange={(e) => setFirstName(e.target.value)}
-                          required={!isLogin}
-                          placeholder="John"
-                          className="w-full px-4 py-3 bg-card border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-foreground"
+                          required
+                          placeholder="Nadia"
                         />
                       </div>
-
                       <div className="space-y-1.5">
-                        <label className="block text-sm font-semibold text-foreground">
-                          Last Name
-                        </label>
-
-                        <input
-                          type="text"
+                        <Label htmlFor="last-name">Last Name</Label>
+                        <Input
+                          id="last-name"
+                          autoComplete="family-name"
                           value={lastName}
                           onChange={(e) => setLastName(e.target.value)}
-                          required={!isLogin}
-                          placeholder="Doe"
-                          className="w-full px-4 py-3 bg-card border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none text-foreground"
+                          required
+                          placeholder="Putri"
                         />
                       </div>
-                    </motion.div>
+                    </div>
                   )}
-                  </AnimatePresence>
 
-                  <label className="block text-sm font-semibold text-foreground">
-                    Email
-                  </label>
-
-                  <div className="relative">
-
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-
-                    <input
+                  <div className="space-y-1.5">
+                    <Label htmlFor="email">Email</Label>
+                    <IconInput
+                      icon={Mail}
+                      id="email"
                       type="email"
+                      autoComplete="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="name@company.com"
                       required
-                      className="w-full pl-10 pr-4 py-3 bg-card border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all text-foreground shadow-sm"
                     />
-
                   </div>
 
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="block text-sm font-semibold text-foreground">Password</label>
-                    {isLogin && (
-                      <a href="#" className="text-xs font-semibold text-primary hover:underline">Forgot password?</a>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
-                    <input 
-                      type="password" 
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="password">Password</Label>
+                      {isLogin && (
+                        <button
+                          type="button"
+                          onClick={() => showAlert("error", "Not available yet", "Password reset isn't set up yet. Ask your workspace owner for help.")}
+                          className="text-label text-primary-text hover:underline"
+                        >
+                          Forgot password?
+                        </button>
+                      )}
+                    </div>
+                    <IconInput
+                      icon={Lock}
+                      id="password"
+                      type="password"
+                      autoComplete={isLogin ? "current-password" : "new-password"}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••" 
+                      placeholder="••••••••"
                       required
                       minLength={6}
-                      className="w-full pl-10 pr-4 py-3 bg-card border border-border rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all text-foreground shadow-sm"
+                      aria-describedby={isLogin ? undefined : "password-hint"}
                     />
+                    {!isLogin && (
+                      <p id="password-hint" className="text-caption font-normal text-muted-foreground">At least 6 characters.</p>
+                    )}
                   </div>
-                </div>
 
-                <motion.button 
-                  whileHover={{ scale: 1.01 }} 
-                  whileTap={{ scale: 0.99 }} 
-                  disabled={isLoading}
-                  type="submit"
-                  className="w-full py-3 bg-primary text-white rounded-xl font-bold shadow-primary-glow flex items-center justify-center gap-2 hover:bg-primary/90 transition-all disabled:opacity-70"
-                >
-                  {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (isLogin ? "Sign In" : "Create Account")}
-                  {!isLoading && <ArrowRight className="w-4 h-4" />}
-                </motion.button>
-              </form>
+                  <Button type="submit" size="lg" className="w-full" loading={isLoading}>
+                    {isLoading
+                      ? (isLogin ? "Signing in…" : "Creating account…")
+                      : (
+                        <>
+                          {isLogin ? "Sign In" : "Create Account"} <ArrowRight className="!size-[18px]" />
+                        </>
+                      )}
+                  </Button>
 
-              <div className="mt-8 mb-6 relative">
-                <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-border"></div></div>
-                <div className="relative flex justify-center text-sm"><span className="px-4 bg-background-light text-muted-foreground">Or continue with</span></div>
-              </div>
+                  {isLogin && (
+                    <>
+                      <div className="flex items-center gap-3 text-caption font-normal text-subtle">
+                        <span className="h-px flex-1 bg-border" />
+                        Or continue with
+                        <span className="h-px flex-1 bg-border" />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <Button type="button" size="lg" variant="secondary" onClick={() => handleSocialLogin("Google")}>
+                          <Globe className="!size-[18px]" strokeWidth={1.75} /> Google
+                        </Button>
+                        <Button type="button" size="lg" variant="secondary" onClick={() => handleSocialLogin("GitHub")}>
+                          <Github className="!size-[18px]" strokeWidth={1.75} /> GitHub
+                        </Button>
+                      </div>
+                    </>
+                  )}
 
-              <div className="grid grid-cols-2 gap-4 mb-8">
-                <button onClick={() => handleSocialLogin('Google')} type="button" className="flex items-center justify-center gap-2 py-2.5 border border-border bg-card hover:bg-muted rounded-xl text-sm font-semibold transition-colors shadow-sm">
-                  <Chrome className="w-4 h-4" /> Google
-                </button>
-                <button onClick={() => handleSocialLogin('GitHub')} type="button" className="flex items-center justify-center gap-2 py-2.5 border border-border bg-card hover:bg-muted rounded-xl text-sm font-semibold transition-colors shadow-sm">
-                  <Github className="w-4 h-4" /> GitHub
-                </button>
-              </div>
-
-              <p className="text-center text-sm text-muted-foreground">
-                {isLogin ? "Don't have an account? " : "Already have an account? "}
-                <button onClick={() => setIsLogin(!isLogin)} className="font-bold text-primary hover:underline">
-                  {isLogin ? "Sign up" : "Sign in"}
-                </button>
-              </p>
-              
-            </motion.div>
-          )}
+                  <p className="text-center text-small text-muted-foreground">
+                    {isLogin ? "Don't have an account? " : "Already have an account? "}
+                    <button type="button" onClick={switchMode} className="font-semibold text-primary-text hover:underline">
+                      {isLogin ? "Sign up" : "Sign in"}
+                    </button>
+                  </p>
+                </form>
+              </motion.div>
+            )}
+          </div>
         </div>
+
+        <p className="text-center text-caption font-normal text-subtle">
+          By continuing you agree to the Terms of Service and Privacy Policy.
+        </p>
       </div>
     </div>
   );
