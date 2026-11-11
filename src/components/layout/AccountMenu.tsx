@@ -11,6 +11,7 @@ export interface AccountProfile {
   fullName: string;
   email: string;
   initials: string;
+  avatarUrl?: string | null;
 }
 
 interface AccountMenuContentProps {
@@ -35,7 +36,7 @@ export default function AccountMenuContent({ profile, onLogout, onNavigate, side
   return (
     <DropdownMenuContent side={side} align={align} sideOffset={8} className="w-[260px]">
       <div className="flex items-center gap-2.5 p-2.5">
-        <UserAvatar initials={profile.initials} size={34} />
+        <UserAvatar initials={profile.initials} imageUrl={profile.avatarUrl} size={34} />
         <div className="min-w-0">
           <p className="truncate text-label text-foreground">{profile.fullName}</p>
           <p className="truncate text-caption text-muted-foreground">{profile.email}</p>

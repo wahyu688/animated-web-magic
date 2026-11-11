@@ -98,9 +98,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // supabase-js refreshes the token on its own (autoRefreshToken). Coming back to the tab only
+  // forces a refresh when the token is about to expire, so alt-tab doesn't trigger a reload.
+  const sessionRef = useRef(session);
+  sessionRef.current = session;
+
   useEffect(() => {
     const recover = () => {
       if (document.visibilityState === "hidden") return;
+      const expiresAt = sessionRef.current?.expires_at;
+      if (!expiresAt || expiresAt * 1000 - Date.now() > 60_000) return;
       void refreshAuth();
     };
 

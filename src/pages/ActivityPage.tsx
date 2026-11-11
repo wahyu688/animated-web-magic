@@ -1,83 +1,103 @@
-import { useCallback, useMemo, useEffect, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { AtSign, AlertTriangle, Upload, CheckCircle, GitBranch, ArrowDown, Check, Send, X, Calendar, Users, Tag, Loader2, type LucideIcon } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
+import {
+  Activity as ActivityIcon, AlertTriangle, ArrowRight, AtSign, Check, CheckCircle, Filter, GitBranch, MessageSquare,
+  RefreshCw, Reply, SendHorizontal, Trash2, Upload, UserPlus, Users, Zap, type LucideIcon,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 import { useCompany } from "@/hooks/use-company";
+import { useAuth } from "@/contexts/AuthContext";
 import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
+import { announceNotificationsChanged, categoryOf, dayGroup, destinationOf, relativeTime } from "@/lib/activity";
+import { toneClasses, toneFromClass } from "@/lib/tones";
+import PageHeader from "@/components/app/PageHeader";
+import PersonAvatar from "@/components/app/PersonAvatar";
+import EmptyState from "@/components/app/EmptyState";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import {
+  DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
-// --- PETA IKON ---
+const PAGE_SIZE = 30;
+
 const IconMap: Record<string, LucideIcon> = {
-  AtSign, AlertTriangle, Upload, CheckCircle, GitBranch
+  AtSign, AlertTriangle, Upload, CheckCircle, GitBranch, MessageSquare, Trash2, Zap, UserPlus, Users,
 };
 
 interface NotificationReply {
   text: string;
   time: string;
+  author?: string;
+  createdAt?: string;
 }
 
 interface NotificationItem {
   id: string;
   type: string;
-  user?: string;
+  user: string;
   action: string;
-  target?: string;
-  message?: string;
-  time: string;
+  target: string;
+  message: string;
+  createdAt: string;
+  legacyTime: string;
   unread: boolean;
-  icon: LucideIcon;
+  iconName: string;
   iconBg: string;
-  initials?: string;
-  hasAction?: boolean;
-  files: unknown[];
+  hasAction: boolean;
   replies: NotificationReply[];
 }
 
-// --- KOMPONEN MODAL TICKET ---
-function TicketSlideover({ open, onClose, ticketData }: { open: boolean, onClose: () => void, ticketData: NotificationItem | null }) {
-  if (!ticketData) return null;
+type Tab = "All Activity" | "Mentions" | "System";
+
+interface EmailPrefs {
+  email_notifications: boolean;
+  push_notifications: boolean;
+  marketing_notifications: boolean;
+}
+
+function ActorBadge({ item }: { item: NotificationItem }) {
+  if (item.user && item.user !== "System") {
+    return <PersonAvatar name={item.user} size={36} />;
+  }
+  const Icon = IconMap[item.iconName] ?? Zap;
+  const tone = toneClasses[toneFromClass(item.iconBg, "primary")];
   return (
-    <AnimatePresence>
-      {open && (
-        <>
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-foreground/20 backdrop-blur-sm" onClick={onClose} />
-          <motion.div initial={{ x: "100%" }} animate={{ x: 0 }} exit={{ x: "100%" }} transition={{ type: "spring", damping: 30, stiffness: 300 }} className="fixed right-0 top-0 z-50 h-full w-full max-w-md bg-card border-l border-border shadow-card-hover flex flex-col">
-            <div className="flex items-center justify-between p-6 border-b border-border">
-              <div className="flex items-center gap-3">
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wide bg-primary/10 text-primary">TICKET-{ticketData.id.slice(0,4).toUpperCase()}</span>
-              </div>
-              <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors p-1"><X className="h-5 w-5" /></button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-6 space-y-8">
-              <h2 className="text-2xl font-bold text-foreground">{ticketData.target || ticketData.action}</h2>
-              <div className="grid grid-cols-2 gap-4">
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/50"><Tag className="h-4 w-4 text-muted-foreground" /><div><p className="text-[10px] text-muted-foreground uppercase">Status</p><p className="text-sm font-semibold text-warning">In Review</p></div></div>
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/50"><Users className="h-4 w-4 text-muted-foreground" /><div><p className="text-[10px] text-muted-foreground uppercase">Assignee</p><p className="text-sm text-foreground">{ticketData.user || "System"}</p></div></div>
-              </div>
-              <div className="space-y-3">
-                <h3 className="text-lg font-bold text-foreground">Original Message</h3>
-                <div className="p-4 rounded-xl bg-muted border border-border text-sm text-foreground italic">
-                  {ticketData.message || "No additional message provided."}
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+    <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-full", tone.soft, tone.text)}>
+      <Icon className="h-[18px] w-[18px]" strokeWidth={1.75} />
+    </span>
   );
 }
 
 export default function ActivityPage() {
   const { toast } = useToast();
-  
-  // --- DATABASE STATES ---
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { companyId, isCompanyLoading } = useCompany();
+
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [pages, setPages] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const isMountedRef = useRef(false);
   const fetchRequestIdRef = useRef(0);
-  const { companyId, isCompanyLoading, companyError } = useCompany();
+
+  const [activeTab, setActiveTab] = useState<Tab>("All Activity");
+  const [unreadOnly, setUnreadOnly] = useState(false);
+  const [replyingTo, setReplyingTo] = useState<string | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [prefs, setPrefs] = useState<EmailPrefs | null>(null);
+
+  const meta = user?.user_metadata ?? {};
+  const myName = [meta.first_name, meta.last_name].filter(Boolean).join(" ").trim() || user?.email?.split("@")[0] || "You";
+  const displayName = (name: string) => (name === myName ? "You" : name);
 
   useEffect(() => {
     if (!isCompanyLoading && !companyId) {
@@ -86,15 +106,7 @@ export default function ActivityPage() {
     }
   }, [companyId, isCompanyLoading]);
 
-  // --- UI STATES ---
-  const [activeTab, setActiveTab] = useState<"All Activity" | "Mentions" | "System">("All Activity");
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasLoadedMore, setHasLoadedMore] = useState(false);
-  const [replyingTo, setReplyingTo] = useState<string | null>(null);
-  const [replyText, setReplyText] = useState("");
-  const [viewingTicket, setViewingTicket] = useState<NotificationItem | null>(null);
-
-  const fetchNotifications = useCallback(async (showLoading = false) => {
+  const fetchNotifications = useCallback(async (showLoading = false, pageCount = pages) => {
     if (!companyId) {
       if (showLoading) setIsLoading(false);
       return;
@@ -103,52 +115,68 @@ export default function ActivityPage() {
 
     try {
       if (showLoading) setIsLoading(true);
-
+      const limit = PAGE_SIZE * pageCount;
       const { data, error } = await withSupabaseTimeout(
         supabase
           .from('notifications')
           .select('*')
           .eq('company_id', companyId)
-          .order('created_at', { ascending: false }),
+          .order('created_at', { ascending: false })
+          .range(0, limit),
         "activity notifications"
       );
       if (error) throw error;
       if (!isMountedRef.current || requestId !== fetchRequestIdRef.current) return;
 
-      const formatted = (data ?? []).map(n => ({
-        id: n.id, type: n.type, user: n.user_name, action: n.action, target: n.target,
-        message: n.message, time: n.time, unread: n.unread, icon: IconMap[n.icon_name] || CheckCircle,
-        iconBg: n.icon_bg, initials: n.initials, hasAction: n.has_action,
-        files: n.files || [], replies: n.replies || []
-      }));
-      setNotifications(formatted);
+      const rows = data ?? [];
+      // One extra row is requested to know whether an older page exists.
+      setHasMore(rows.length > limit);
+      setNotifications(rows.slice(0, limit).map((n) => ({
+        id: n.id,
+        type: n.type ?? "success",
+        user: n.user_name ?? "System",
+        action: n.action ?? "",
+        target: n.target ?? "",
+        message: n.message ?? "",
+        createdAt: n.created_at,
+        legacyTime: n.time ?? "",
+        unread: Boolean(n.unread),
+        iconName: n.icon_name ?? "CheckCircle",
+        iconBg: n.icon_bg ?? "",
+        hasAction: Boolean(n.has_action),
+        replies: Array.isArray(n.replies) ? n.replies : [],
+      })));
     } catch (error) {
       console.error("Error fetching notifications:", error);
-      toast({ title: "Fetch Error", description: "Gagal memuat activity feed.", variant: "destructive" });
+      toast({ title: "Couldn't load activity", description: "Check your connection and refresh.", variant: "destructive" });
     } finally {
-      if (isMountedRef.current && (showLoading || requestId === fetchRequestIdRef.current)) setIsLoading(false);
+      if (isMountedRef.current && (showLoading || requestId === fetchRequestIdRef.current)) {
+        setIsLoading(false);
+        setIsLoadingMore(false);
+      }
     }
-  }, [companyId, toast]);
+  }, [companyId, pages, toast]);
+
+  // The realtime channel reads the latest fetcher through a ref so loading older pages doesn't resubscribe.
+  const fetchRef = useRef(fetchNotifications);
+  useEffect(() => {
+    fetchRef.current = fetchNotifications;
+  }, [fetchNotifications]);
 
   useSupabaseResumeRecovery({
     enabled: Boolean(companyId),
-    onRecover: () => fetchNotifications(false),
+    onRecover: () => fetchRef.current(false),
   });
 
-  // --- FETCH & REAL-TIME SUPABASE ---
   useEffect(() => {
     isMountedRef.current = true;
     if (!companyId) return;
-    fetchNotifications(true);
+    fetchRef.current(true);
 
     const channel = supabase.channel(`activity-notifications-realtime:${companyId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `company_id=eq.${companyId}` }, (payload) => {
-        console.info("[activity realtime] change received:", payload.eventType, payload);
-        fetchNotifications();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'notifications', filter: `company_id=eq.${companyId}` }, () => fetchRef.current())
       .subscribe((status, error) => {
-        console.info("[activity realtime] status:", status, error ?? "");
-        if (status === 'SUBSCRIBED') fetchNotifications();
+        if (status === 'SUBSCRIBED') fetchRef.current();
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           console.warn("[activity realtime] disconnected; mutation fetch fallback remains active.", { status, error });
         }
@@ -158,275 +186,373 @@ export default function ActivityPage() {
       isMountedRef.current = false;
       safeRemoveChannel(channel);
     };
-  }, [companyId, fetchNotifications]);
+  }, [companyId]);
 
-  // --- LOGIKA FILTERING ---
-  const filteredNotifications = useMemo(() => {
-    return notifications.filter((n) => {
-      if (activeTab === "Mentions") return n.type === "mention" || n.type === "invite";
-      if (activeTab === "System") return n.type === "warning" || n.type === "success" || n.type === "commit";
-      return true; 
-    });
-  }, [notifications, activeTab]);
+  // Email preferences (same user_settings row the Settings page edits).
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    supabase
+      .from("user_settings")
+      .select("email_notifications, push_notifications, marketing_notifications")
+      .eq("user_id", user.id)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (cancelled) return;
+        setPrefs({
+          email_notifications: data?.email_notifications ?? true,
+          push_notifications: data?.push_notifications ?? true,
+          marketing_notifications: data?.marketing_notifications ?? false,
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
-  const unreadMentionsCount = notifications.filter((n) => (n.type === "mention" || n.type === "invite") && n.unread).length;
-
-  // --- HANDLERS (TERSAMBUNG KE DATABASE) ---
-  const handleMarkAllRead = async () => {
-    if (!companyId) {
-      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
-      return;
-    }
-
-    // Optimistic UI
-    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
-    toast({ title: "All marked as read", description: "Your activity feed is all caught up." });
-    
-    // Kirim ke server
-    const { error } = await supabase.from('notifications').update({ unread: false }).eq('company_id', companyId).eq('unread', true);
+  const updatePref = async (key: keyof EmailPrefs, value: boolean) => {
+    if (!user?.id || !prefs) return;
+    const previous = prefs;
+    setPrefs({ ...prefs, [key]: value });
+    const { error } = await supabase
+      .from("user_settings")
+      .upsert({ user_id: user.id, ...prefs, [key]: value, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
     if (error) {
-      toast({ title: "Sync Error", description: "Gagal menandai semua notifikasi.", variant: "destructive" });
+      setPrefs(previous);
+      toast({ title: "Couldn't save your preference", description: "Try again.", variant: "destructive" });
     }
-    await fetchNotifications();
   };
 
-  const handleItemClick = async (id: string) => {
-    const target = notifications.find(n => n.id === id);
-    if (target && target.unread) {
-      if (!companyId) {
-        toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
-        return;
-      }
+  // --- Derived ---
+  const filtered = useMemo(() => notifications.filter((n) => {
+    if (unreadOnly && !n.unread) return false;
+    if (activeTab === "Mentions") return categoryOf(n.type) === "mention";
+    if (activeTab === "System") return categoryOf(n.type) !== "mention";
+    return true;
+  }), [notifications, activeTab, unreadOnly]);
 
-      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, unread: false } : n)));
-      const { error } = await supabase.from('notifications').update({ unread: false }).eq('company_id', companyId).eq('id', id);
-      if (error) {
-        toast({ title: "Sync Error", description: "Gagal memperbarui notifikasi.", variant: "destructive" });
-      }
+  const grouped = useMemo(() => {
+    const groups: { label: string; items: NotificationItem[] }[] = [];
+    for (const item of filtered) {
+      const label = dayGroup(item.createdAt);
+      const last = groups[groups.length - 1];
+      if (last?.label === label) last.items.push(item);
+      else groups.push({ label, items: [item] });
+    }
+    return groups;
+  }, [filtered]);
+
+  const weekStats = useMemo(() => {
+    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
+    const recent = notifications.filter((n) => new Date(n.createdAt).getTime() >= weekAgo);
+    return [
+      { label: "Unread", value: notifications.filter((n) => n.unread).length, dot: "bg-primary" },
+      { label: "Mentions", value: recent.filter((n) => categoryOf(n.type) === "mention").length, dot: "bg-violet" },
+      { label: "Task updates", value: recent.filter((n) => categoryOf(n.type) === "task").length, dot: "bg-info" },
+      { label: "System events", value: recent.filter((n) => categoryOf(n.type) === "system").length, dot: "bg-subtle" },
+    ];
+  }, [notifications]);
+
+  const unreadMentions = notifications.filter((n) => categoryOf(n.type) === "mention" && n.unread).length;
+
+  // --- Handlers ---
+  const markRead = async (id: string) => {
+    const target = notifications.find((n) => n.id === id);
+    if (!target?.unread || !companyId) return;
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, unread: false } : n)));
+    const { error } = await supabase.from('notifications').update({ unread: false }).eq('company_id', companyId).eq('id', id);
+    if (error) toast({ title: "Couldn't update the notification", description: "Try again.", variant: "destructive" });
+    announceNotificationsChanged();
+  };
+
+  const handleMarkAllRead = async () => {
+    if (!companyId) return;
+    setNotifications((prev) => prev.map((n) => ({ ...n, unread: false })));
+    const { error } = await supabase.from('notifications').update({ unread: false }).eq('company_id', companyId).eq('unread', true);
+    announceNotificationsChanged();
+    if (error) {
+      toast({ title: "Couldn't mark everything as read", description: "Try again.", variant: "destructive" });
+      await fetchNotifications();
+      return;
+    }
+    toast({ title: "All caught up", description: "Every notification is marked as read." });
+  };
+
+  const handleLoadMore = () => {
+    const next = pages + 1;
+    setPages(next);
+    setIsLoadingMore(true);
+    void fetchNotifications(false, next);
+  };
+
+  const handleSendReply = async (item: NotificationItem) => {
+    if (!replyText.trim() || !companyId) return;
+    const reply: NotificationReply = {
+      text: replyText.trim(),
+      time: "Just now",
+      author: myName,
+      createdAt: new Date().toISOString(),
+    };
+    const updatedReplies = [...item.replies, reply];
+    setNotifications((prev) => prev.map((n) => (n.id === item.id ? { ...n, replies: updatedReplies, unread: false } : n)));
+    setReplyingTo(null);
+    setReplyText("");
+
+    const { error } = await supabase
+      .from('notifications')
+      .update({ replies: updatedReplies, unread: false })
+      .eq('company_id', companyId)
+      .eq('id', item.id);
+    announceNotificationsChanged();
+    if (error) {
+      toast({ title: "Couldn't send your reply", description: "Try again.", variant: "destructive" });
       await fetchNotifications();
     }
   };
 
-  const handleLoadMore = () => {
-    setIsLoadingMore(true);
-    // Simulasi load older data
-    setTimeout(() => {
-      setIsLoadingMore(false);
-      setHasLoadedMore(true);
-      toast({ title: "End of feed", description: "No older activities found in the database." });
-    }, 1000);
-  };
-
-  // Handler Reply (Simpan ke kolom JSONB replies di DB)
-  const handleOpenReply = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    setReplyingTo(replyingTo === id ? null : id);
-    setReplyText("");
-  };
-
-  const handleSendReply = async (e: React.MouseEvent | React.KeyboardEvent, id: string) => {
-    e.stopPropagation();
-    if (!replyText.trim()) return;
-
-    const targetNotif = notifications.find(n => n.id === id);
-    if (!targetNotif) return;
-    if (!companyId) {
-      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
-      return;
-    }
-
-    const newReply = { text: replyText, time: "Just now" };
-    const updatedReplies = [...(targetNotif.replies || []), newReply];
-
-    // Optimistic UI update
-    setNotifications(prev => prev.map(n => n.id === id ? { ...n, replies: updatedReplies } : n));
-    setReplyingTo(null);
-    setReplyText("");
-    
-    // Simpan ke database
-    const { error } = await supabase.from('notifications').update({ replies: updatedReplies }).eq('company_id', companyId).eq('id', id);
-    
-    if (error) {
-      toast({ title: "Error", description: "Gagal mengirim balasan.", variant: "destructive" });
-    } else {
-      toast({ title: "Reply sent", description: "Your comment has been posted successfully." });
-    }
-    await fetchNotifications();
-  };
-
-  const handleViewTicket = (e: React.MouseEvent, notification: NotificationItem) => {
-    e.stopPropagation();
-    setViewingTicket(notification);
-    handleItemClick(notification.id);
-  };
+  const tabs: Tab[] = ["All Activity", "Mentions", "System"];
+  const showSkeleton = (isCompanyLoading && !companyId) || (Boolean(companyId) && isLoading);
 
   return (
-    <div className="p-6 lg:p-10 max-w-3xl mx-auto relative">
-      
-      {((isCompanyLoading && !companyId) || (Boolean(companyId) && isLoading)) && (
-        <div className="absolute top-10 right-10 z-10 flex items-center justify-center">
-          <Loader2 className="w-6 h-6 animate-spin text-primary" />
-        </div>
-      )}
+    <div className="space-y-6 px-4 pb-12 pt-6 sm:px-6 lg:px-8 lg:pt-7">
+      <PageHeader
+        title="Activity Feed"
+        description="Updates across your projects and teams."
+        actions={
+          <>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="secondary">
+                  <Filter strokeWidth={1.75} /> Filter
+                  {unreadOnly && <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-label="Filter active" />}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuLabel className="text-caption text-muted-foreground">Show</DropdownMenuLabel>
+                <DropdownMenuCheckboxItem checked={unreadOnly} onCheckedChange={(checked) => setUnreadOnly(Boolean(checked))}>
+                  Unread only
+                </DropdownMenuCheckboxItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button variant="secondary" onClick={handleMarkAllRead} disabled={!notifications.some((n) => n.unread)}>
+              <Check /> Mark all read
+            </Button>
+          </>
+        }
+      />
 
-      {companyError && (
-        <div className="mb-4 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          Gagal memuat company context. Silakan refresh atau login ulang.
-        </div>
-      )}
-
-      {!isCompanyLoading && !companyId && !companyError && (
-        <div className="mb-4 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
-          Company context belum tersedia. Hubungi admin workspace Anda.
-        </div>
-      )}
-
-      {/* Header */}
-      <div className="mb-8 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground mb-1">Activity Feed</h1>
-          <p className="text-sm text-muted-foreground">Updates across your projects and teams</p>
-        </div>
-        <div className="flex gap-2">
-          <button className="px-4 py-2 text-sm font-medium text-muted-foreground bg-card border border-border rounded-xl hover:bg-muted transition-colors">
-            Filter
-          </button>
-          <button onClick={handleMarkAllRead} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary bg-primary/10 hover:bg-primary/20 rounded-xl transition-colors">
-            <Check className="h-4 w-4" /> Mark all read
-          </button>
-        </div>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-6 border-b border-border mb-6 text-sm relative overflow-x-auto whitespace-nowrap">
-        {(["All Activity", "Mentions", "System"] as const).map((tab) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`pb-3 border-b-2 font-medium transition-colors relative ${
-              activeTab === tab ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {tab}
-            {tab === "Mentions" && unreadMentionsCount > 0 && (
-              <span className="ml-1.5 bg-primary text-primary-foreground text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                {unreadMentionsCount}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {/* Feed */}
-      <motion.div layout transition={{ layout: { duration: 0.25, ease: "easeOut" } }} className="bg-card rounded-2xl shadow-card border border-border overflow-hidden">
-        <div className="px-6 pt-6 pb-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-            {activeTab === "All Activity" ? "Recent" : activeTab}
-          </h3>
-        </div>
-
-        <AnimatePresence mode="popLayout">
-          {filteredNotifications.length === 0 && !isLoading ? (
-            <motion.div key="empty-state" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.2 }} className="p-8 text-center text-muted-foreground text-sm">
-              No activities found for this category.
-            </motion.div>
-          ) : (
-            filteredNotifications.map((n, i) => (
-              <motion.div
-                key={n.id}
-                layout="position"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.97, transition: { duration: 0.15, delay: 0 } }}
-                transition={{
-                  layout: { type: "spring", stiffness: 500, damping: 40 },
-                  opacity: { duration: 0.25, delay: Math.min(i * 0.04, 0.3) },
-                  y: { duration: 0.25, delay: Math.min(i * 0.04, 0.3) },
-                }}
-                onClick={() => handleItemClick(n.id)}
-                className={`group relative flex items-start gap-4 p-4 hover:bg-muted/50 transition-all cursor-pointer border-b border-border/50 last:border-0 ${n.unread ? "bg-primary/5 hover:bg-primary/10" : ""}`}
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+        <div className="min-w-0 space-y-4">
+          {/* Tabs */}
+          <div role="tablist" aria-label="Activity type" className="flex gap-6 border-b border-border">
+            {tabs.map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === tab}
+                onClick={() => setActiveTab(tab)}
+                className={cn(
+                  "-mb-px flex items-center gap-2 border-b-2 pb-3 text-small transition-colors",
+                  activeTab === tab ? "border-primary font-semibold text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+                )}
               >
-                {n.unread && <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ duration: 0.2 }} className="absolute left-2 top-1/2 -translate-y-1/2 w-1.5 h-1.5 bg-primary rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />}
-                
-                <div className="flex-shrink-0 ml-2">
-                  {n.initials ? (
-                    <div className="w-10 h-10 rounded-full gradient-primary flex items-center justify-center text-primary-foreground text-xs font-bold ring-2 ring-card">{n.initials}</div>
-                  ) : (
-                    <div className={`w-10 h-10 rounded-full ${n.iconBg} flex items-center justify-center ring-2 ring-card`}>
-                      {n.icon && <n.icon className="h-5 w-5" />}
+                {tab}
+                {tab === "Mentions" && unreadMentions > 0 && (
+                  <span className="rounded-full bg-track px-1.5 text-micro font-semibold leading-5 text-muted-foreground tabular">{unreadMentions}</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Feed */}
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
+            {showSkeleton ? (
+              <div className="space-y-5 p-5">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex gap-3">
+                    <Skeleton className="h-9 w-9 rounded-full" />
+                    <div className="flex-1 space-y-2">
+                      <Skeleton className="h-4 w-3/4" />
+                      <Skeleton className="h-4 w-1/2" />
                     </div>
-                  )}
-                </div>
-                
-                <div className="flex-grow min-w-0">
-                  <div className="flex justify-between items-baseline mb-0.5">
-                    <p className={`text-sm font-medium ${n.unread ? "text-foreground font-semibold" : "text-muted-foreground"}`}>
-                      {n.user && <span className="font-bold text-foreground">{n.user}</span>} {n.action} {n.target && <span className="text-primary hover:underline cursor-pointer">{n.target}</span>}
-                    </p>
-                    <span className="text-xs text-muted-foreground whitespace-nowrap ml-4 shrink-0">{n.time}</span>
                   </div>
-                  {n.message && <p className={`text-sm mt-1 line-clamp-2 ${n.unread ? "text-foreground" : "text-muted-foreground"}`}>{n.message}</p>}
-                  
-                  {/* Tampilkan Balasan yang Sudah Dikirim */}
-                  {n.replies && n.replies.length > 0 && (
-                    <div className="mt-3 space-y-2 border-l-2 border-primary/20 pl-3 ml-1">
-                      {n.replies.map((reply, idx) => (
-                        <div key={idx}>
-                          <p className="text-xs font-semibold text-foreground">You <span className="font-normal text-muted-foreground ml-2">{reply.time}</span></p>
-                          <p className="text-sm text-muted-foreground">{reply.text}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                ))}
+              </div>
+            ) : grouped.length === 0 ? (
+              <EmptyState
+                icon={ActivityIcon}
+                title="No activities found"
+                description={unreadOnly ? "You're all caught up." : "Nothing in this category yet. Check back after your team gets moving."}
+                className="py-14"
+              />
+            ) : (
+              grouped.map((group) => (
+                <section key={group.label} aria-label={group.label}>
+                  <h2 className="border-b border-border bg-surface-2 px-5 py-2 text-caption font-semibold text-muted-foreground">{group.label}</h2>
+                  <ul>
+                    {group.items.map((item, index) => {
+                      const destination = destinationOf(item.action, item.type);
+                      const isMention = item.type === "mention";
+                      const timeLabel = item.createdAt ? relativeTime(item.createdAt) : item.legacyTime;
+                      return (
+                        <motion.li
+                          key={item.id}
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.22, delay: Math.min(index * 0.04, 0.2), ease: "easeOut" }}
+                          onClick={() => void markRead(item.id)}
+                          className={cn(
+                            "relative flex gap-3 border-b border-border px-5 py-4 last:border-b-0 sm:pl-9",
+                            item.unread && "bg-primary-soft/60"
+                          )}
+                        >
+                          {item.unread && <span className="absolute left-4 top-[30px] hidden h-2 w-2 rounded-full bg-primary sm:block" aria-label="Unread" />}
+                          <ActorBadge item={item} />
 
-                  {/* Form Reply Inline */}
-                  <AnimatePresence>
-                    {replyingTo === n.id && (
-                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-3 flex gap-2 items-center overflow-hidden">
-                        <input
-                          type="text" autoFocus value={replyText} onChange={(e) => setReplyText(e.target.value)} onClick={(e) => e.stopPropagation()}
-                          onKeyDown={(e) => { if (e.key === "Enter") handleSendReply(e, n.id); }}
-                          placeholder="Type your reply..."
-                          className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-sm outline-none focus:border-primary transition-colors text-foreground"
-                        />
-                        <button onClick={(e) => handleSendReply(e, n.id)} disabled={!replyText.trim()} className="p-1.5 bg-primary text-primary-foreground rounded-lg disabled:opacity-50"><Send className="w-4 h-4" /></button>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                          <div className="min-w-0 flex-1 space-y-2.5">
+                            <div className="flex items-start gap-3">
+                              <p className="min-w-0 flex-1 text-small text-muted-foreground">
+                                {item.user !== "System" && <b className="font-semibold text-foreground">{displayName(item.user)} </b>}
+                                {item.action}
+                                {item.target && <b className="font-semibold text-foreground"> {item.target}</b>}
+                              </p>
+                              <time dateTime={item.createdAt} className="shrink-0 text-caption font-normal text-subtle tabular">{timeLabel}</time>
+                            </div>
 
-                  {/* Action Buttons */}
-                  {n.hasAction && (
-                    <div className="mt-3"><button onClick={(e) => { e.stopPropagation(); toast({ title: "Joined Project", description: "You are now a member of " + n.target }) }} className="text-xs font-semibold text-primary bg-primary/10 hover:bg-primary/20 px-4 py-2 rounded-lg transition-colors">Join Project</button></div>
-                  )}
-                  {n.type === "mention" && (
-                    <div className={`mt-3 flex gap-2 transition-opacity ${n.unread || replyingTo === n.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                      <button onClick={(e) => handleOpenReply(e, n.id)} className={`text-xs font-medium px-3 py-1.5 border border-border rounded-lg transition-colors ${replyingTo === n.id ? "bg-muted text-foreground" : "text-muted-foreground hover:text-primary hover:border-primary/50 bg-card"}`}>
-                        {replyingTo === n.id ? "Cancel" : "Reply"}
-                      </button>
-                      <button onClick={(e) => handleViewTicket(e, n)} className="text-xs font-medium text-muted-foreground hover:text-primary hover:border-primary/50 px-3 py-1.5 bg-card border border-border rounded-lg transition-colors">
-                        View Ticket
-                      </button>
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            ))
-          )}
-        </AnimatePresence>
-      </motion.div>
+                            {item.message && (
+                              <p className={cn(
+                                "text-small text-foreground",
+                                isMention ? "rounded-lg border border-border bg-card px-4 py-2.5" : "border-l-2 border-border pl-3"
+                              )}>
+                                {item.message}
+                              </p>
+                            )}
 
-      {/* Load More Button */}
-      {!hasLoadedMore && notifications.length > 0 && (
-        <div className="mt-8 text-center pb-4">
-          <button onClick={handleLoadMore} disabled={isLoadingMore} className="text-sm text-muted-foreground hover:text-primary font-medium transition-colors flex items-center justify-center gap-2 mx-auto disabled:opacity-50">
-            {isLoadingMore ? <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" /> : <ArrowDown className="h-4 w-4" />}
-            {isLoadingMore ? "Loading..." : "Load older activity"}
-          </button>
+                            {item.replies.length > 0 && (
+                              <ul className="space-y-2">
+                                {item.replies.map((reply, i) => {
+                                  const authorName = reply.author ?? myName;
+                                  const author = displayName(authorName);
+                                  return (
+                                    <li key={i} className="flex gap-2.5">
+                                      <PersonAvatar name={authorName} size={22} />
+                                      <div className="min-w-0">
+                                        <p className="text-caption font-semibold text-foreground">
+                                          {author}
+                                          <span className="font-normal text-subtle"> · {reply.createdAt ? relativeTime(reply.createdAt) : reply.time}</span>
+                                        </p>
+                                        <p className="text-small text-foreground">{reply.text}</p>
+                                      </div>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            )}
+
+                            {replyingTo === item.id && (
+                              <form
+                                className="flex gap-2"
+                                onClick={(e) => e.stopPropagation()}
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  void handleSendReply(item);
+                                }}
+                              >
+                                <Input autoFocus value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Type your reply…" aria-label="Reply" />
+                                <Button type="submit" size="icon" disabled={!replyText.trim()} aria-label="Send reply">
+                                  <SendHorizontal strokeWidth={1.75} />
+                                </Button>
+                              </form>
+                            )}
+
+                            {(isMention || destination) && (
+                              <div className="flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+                                {isMention && (
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={() => {
+                                      setReplyingTo(replyingTo === item.id ? null : item.id);
+                                      setReplyText("");
+                                    }}
+                                  >
+                                    <Reply strokeWidth={1.75} /> {replyingTo === item.id ? "Cancel" : "Reply"}
+                                  </Button>
+                                )}
+                                {destination && (
+                                  <Button
+                                    variant={item.hasAction && !isMention ? "default" : "ghost"}
+                                    size="sm"
+                                    className={cn(!isMention && !item.hasAction && "-ml-3")}
+                                    onClick={() => {
+                                      void markRead(item.id);
+                                      navigate(destination.path);
+                                    }}
+                                  >
+                                    {destination.label} <ArrowRight />
+                                  </Button>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </motion.li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              ))
+            )}
+
+            {!showSkeleton && hasMore && (
+              <div className="border-t border-border p-3 text-center">
+                <Button variant="ghost" onClick={handleLoadMore} loading={isLoadingMore}>
+                  {!isLoadingMore && <RefreshCw strokeWidth={1.75} />} Load older activity
+                </Button>
+              </div>
+            )}
+          </div>
         </div>
-      )}
 
-      {/* Ticket Slideover Modal */}
-      <TicketSlideover open={!!viewingTicket} onClose={() => setViewingTicket(null)} ticketData={viewingTicket} />
+        {/* Side cards */}
+        <aside className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
+          <section className="rounded-xl border border-border bg-card p-5 shadow-xs">
+            <h2 className="mb-3.5 text-card-title text-foreground">This week</h2>
+            <dl className="space-y-3">
+              {weekStats.map((stat) => (
+                <div key={stat.label} className="flex items-center gap-2.5 text-small">
+                  <span className={cn("h-2 w-2 rounded-full", stat.dot)} aria-hidden="true" />
+                  <dt className="flex-1 text-foreground">{stat.label}</dt>
+                  <dd className="font-semibold text-foreground tabular">{stat.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </section>
+
+          <section className="rounded-xl border border-border bg-card p-5 shadow-xs">
+            <h2 className="mb-3.5 text-card-title text-foreground">Email me about</h2>
+            {prefs ? (
+              <div className="space-y-3">
+                {([
+                  ["email_notifications", "Activity & mentions"],
+                  ["push_notifications", "Browser notifications"],
+                  ["marketing_notifications", "Product news"],
+                ] as const).map(([key, label]) => (
+                  <label key={key} className="flex items-center justify-between gap-3 text-small text-foreground">
+                    {label}
+                    <Switch checked={prefs[key]} onCheckedChange={(value) => void updatePref(key, value)} />
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-3">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-6 w-full" />)}</div>
+            )}
+            <Button asChild variant="ghost" size="sm" className="-ml-3 mt-3">
+              <Link to="/settings?tab=notifications">Notification settings <ArrowRight /></Link>
+            </Button>
+          </section>
+        </aside>
+      </div>
     </div>
   );
 }

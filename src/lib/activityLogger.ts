@@ -13,6 +13,16 @@ interface LogProps {
   companyId?: string;
 }
 
+/** "You" is resolved to the signed-in person's name so teammates see who did it. */
+async function resolveActorName(user: string) {
+  if (user !== "You") return user;
+  const { data } = await supabase.auth.getSession();
+  const authUser = data.session?.user;
+  const meta = authUser?.user_metadata ?? {};
+  const fullName = [meta.first_name, meta.last_name].filter(Boolean).join(" ").trim();
+  return fullName || authUser?.email?.split("@")[0] || "A teammate";
+}
+
 export const logActivity = async ({
   user = "System",
   action,
@@ -27,12 +37,13 @@ export const logActivity = async ({
   try {
     const scopedCompanyId = companyId ?? (await getCurrentCompany())?.companyId;
     if (!scopedCompanyId) throw new Error("Missing company_id for activity log.");
+    const actorName = await resolveActorName(user);
 
     // Tembak data ke tabel notifications
     const { error } = await supabase.from('notifications').insert([{
       company_id: scopedCompanyId,
       type,
-      user_name: user,
+      user_name: actorName,
       action,
       target,
       message,

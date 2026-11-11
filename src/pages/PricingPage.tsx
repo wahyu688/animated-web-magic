@@ -1,59 +1,39 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import { ArrowRight, Check, Mail, Minus, Plus, Sparkles } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCompany } from "@/hooks/use-company";
+import { useWorkspaceSummary, type WorkspaceSummary } from "@/hooks/use-workspace-summary";
 import { clearCompanyCache } from "@/lib/company";
 import PublicNavbar from "@/components/public/PublicNavbar";
 import PublicFooter from "@/components/public/PublicFooter";
 import SectionHeading from "@/components/public/SectionHeading";
-import CheckoutDialog, { type PaymentState } from "@/components/public/pricing/CheckoutDialog";
+import CheckoutDialog, { type CheckoutKind, type PaymentState, type WorkspaceSetup } from "@/components/public/pricing/CheckoutDialog";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { PLANS as plans, TRIAL_LENGTH_DAYS, isTrialExpired, isTrialStatus } from "@/lib/plans";
 
 // Simulated payment length (no payment gateway yet).
 const PROCESSING_MS = 1600;
 
-const plans = [
-  {
-    name: "Starter",
-    price: { monthly: 29, yearly: 23 },
-    desc: "Ideal for small teams and startups just getting started.",
-    features: ["Up to 5 Users", "10GB Cloud Storage", "Basic Email Support", "Public Projects"],
-    highlighted: false,
-    cta: "Get Started",
-  },
-  {
-    name: "Professional",
-    price: { monthly: 99, yearly: 79 },
-    desc: "Perfect for scaling companies requiring advanced workflow.",
-    featuresLead: "Everything in Starter, plus:",
-    features: ["Up to 20 Users", "100GB Cloud Storage", "Priority Support", "Advanced Analytics"],
-    highlighted: true,
-    cta: "Upgrade Now",
-    badge: "Most Popular",
-  },
-  {
-    name: "Enterprise",
-    price: { monthly: null, yearly: null },
-    desc: "For organizations needing enterprise-grade security and scale.",
-    features: ["Unlimited Users", "Unlimited Storage", "Dedicated Account Manager", "SSO & Enterprise Security", "Custom SLA"],
-    highlighted: false,
-    cta: "Contact Sales",
-  },
-];
-
 const faqs = [
-  { q: "Can I change my plan later?", a: "Yes. Upgrade or downgrade from Settings → Billing whenever you like. The new price applies from your next billing cycle." },
+  { q: "Can I change my plan later?", a: "Yes. Come back to this page whenever you like to switch plans. The new price applies from your next billing cycle." },
   { q: "What payment methods do you accept?", a: "We accept all major credit cards, PayPal, and wire transfers for Enterprise plans." },
-  { q: "Is there a free trial?", a: "Yes! All plans include a 14-day free trial. No credit card required." },
+  { q: "Is there a free trial?", a: "Yes. Starter and Professional come with a 14-day free trial, no credit card required. When it ends, pick a plan to keep your workspace going." },
 ];
 
 type Billing = "monthly" | "yearly";
+
+interface SubscriptionValues {
+  plan: string;
+  status: "trialing" | "active";
+  billing_cycle: Billing;
+  expires_at: string | null;
+}
 
 function BillingToggle({ value, onChange }: { value: Billing; onChange: (value: Billing) => void }) {
   const options: { value: Billing; label: string }[] = [
@@ -85,15 +65,141 @@ function BillingToggle({ value, onChange }: { value: Billing; onChange: (value: 
   );
 }
 
+interface PlanActionProps {
+  plan: string;
+  price: number | null;
+  highlighted: boolean;
+  defaultCta: string;
+  hasWorkspace: boolean;
+  current: WorkspaceSummary | null;
+  busy: boolean;
+  onCheckout: (kind: CheckoutKind) => void;
+}
+
+/** Supabase errors are plain objects ({ message, code }), not Error instances. */
+function describeCheckoutError(error: unknown) {
+  const { message, code } = (error ?? {}) as { message?: string; code?: string };
+  if (!message) return "Something went wrong while activating your plan.";
+  // PostgREST can't find the new columns: the business_profile migration hasn't been run.
+  if (code === "PGRST204" && /business_type|currency/.test(message)) {
+    return "The database is missing the business type and currency columns. Run 2026-11-11_business_profile.sql in Supabase, then try again.";
+  }
+  return code ? `${message} (${code})` : message;
+}
+
+function formatShortDate(value: string) {
+  return new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/** CTA block under the price: free trial for new visitors, subscribe/switch for existing workspaces. */
+function PlanAction({ plan, price, highlighted, defaultCta, hasWorkspace, current, busy, onCheckout }: PlanActionProps) {
+  const variant = highlighted ? "default" : "secondary";
+  const isThisPlan = current?.plan === plan.toLowerCase();
+  const trialEnded = isThisPlan && isTrialExpired(current?.status, current?.expiresAt);
+  const onActiveTrial = isThisPlan && isTrialStatus(current?.status) && !trialEnded;
+
+  if (isThisPlan && current?.status === "active") {
+    return (
+      <Button size="lg" variant="secondary" className="w-full" disabled>
+        <Check className="!size-[18px]" strokeWidth={2.2} /> Current plan
+      </Button>
+    );
+  }
+
+  // Enterprise has no self-serve trial.
+  const canTrial = !hasWorkspace && price != null;
+
+  if (canTrial) {
+    return (
+      <div className="space-y-2 text-center">
+        <Button size="lg" variant={variant} className="w-full" disabled={busy} onClick={() => onCheckout("trial")}>
+          Start {TRIAL_LENGTH_DAYS}-day free trial
+          {highlighted && <ArrowRight className="!size-[18px]" />}
+        </Button>
+        <p className="text-caption font-normal text-muted-foreground">
+          No credit card required. Or{" "}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => onCheckout("payment")}
+            className="rounded-sm font-medium text-primary-text underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+          >
+            subscribe now
+          </button>
+        </p>
+      </div>
+    );
+  }
+
+  const label = !hasWorkspace || (price == null && !isThisPlan)
+    ? defaultCta
+    : current?.status === "active" && !isThisPlan
+      ? `Switch to ${plan}`
+      : `Subscribe to ${plan}`;
+
+  return (
+    <div className="space-y-2 text-center">
+      <Button size="lg" variant={variant} className="w-full" disabled={busy} onClick={() => onCheckout("payment")}>
+        {label}
+        {highlighted && <ArrowRight className="!size-[18px]" />}
+      </Button>
+      {onActiveTrial && current?.expiresAt && (
+        <p className="text-caption font-normal text-muted-foreground">Your trial runs until {formatShortDate(current.expiresAt)}.</p>
+      )}
+      {trialEnded && <p className="text-caption font-normal text-warning">Your free trial has ended.</p>}
+    </div>
+  );
+}
+
 export default function PricingPage() {
   const [billing, setBilling] = useState<Billing>("yearly");
   const [payment, setPayment] = useState<PaymentState | null>(null);
 
   const navigate = useNavigate();
   const { session } = useAuth();
-  const { companyId, isCompanyLoading } = useCompany();
+  const { companyId } = useCompany();
 
-  const handleSubscribe = async (planName: string, price: number | null) => {
+  const workspace = useWorkspaceSummary(companyId);
+  const hasWorkspace = Boolean(companyId);
+
+  /** Points the workspace's subscription row at the new plan (insert if it never had one). */
+  const saveSubscription = async (targetCompanyId: string, values: SubscriptionValues) => {
+    const { data: updated, error: updateError } = await supabase
+      .from("subscriptions")
+      .update(values)
+      .eq("company_id", targetCompanyId)
+      .select("id");
+
+    if (updateError) throw updateError;
+    if (updated && updated.length > 0) return;
+
+    const { error: insertError } = await supabase
+      .from("subscriptions")
+      .insert({ company_id: targetCompanyId, ...values });
+
+    if (insertError) {
+      // RLS: only owners/admins may change a workspace's plan.
+      if (insertError.code === "42501") throw new Error("Only workspace owners and admins can change the plan.");
+      throw insertError;
+    }
+  };
+
+  const defaultWorkspaceName = `${session?.user?.user_metadata?.first_name || "My"} Workspace`;
+
+  /** New workspaces pick a name, business type and currency first; existing ones go straight to checkout. */
+  const startCheckout = (kind: CheckoutKind, planName: string, price: number | null) => {
+    if (!session?.user) {
+      navigate("/login?mode=signup");
+      return;
+    }
+    if (hasWorkspace) {
+      void handleCheckout(kind, planName, price);
+      return;
+    }
+    setPayment({ kind, stage: "setup", plan: planName, price });
+  };
+
+  const handleCheckout = async (kind: CheckoutKind, planName: string, price: number | null, setup?: WorkspaceSetup) => {
     try {
       if (!session?.user) {
         navigate("/login?mode=signup");
@@ -101,85 +207,93 @@ export default function PricingPage() {
       }
 
       const user = session.user;
+      setPayment({ kind, stage: "processing", plan: planName, price, setup });
 
-      const [{ data: profile }, { data: member }] = await Promise.all([
-        supabase
-          .from("user_profiles")
-          .select("company_id")
-          .eq("id", user.id)
-          .maybeSingle(),
-        supabase
-          .from("company_members")
-          .select("company_id")
-          .eq("user_id", user.id)
-          .eq("status", "active")
-          .limit(1)
-          .maybeSingle(),
-      ]);
-
-      const existingCompanyId = profile?.company_id ?? member?.company_id;
-      if (existingCompanyId) {
-        navigate("/dashboard", { replace: true });
-        return;
+      // Simulasi proses pembayaran (project tugas — belum ada payment gateway). Trials skip it.
+      if (kind === "payment") {
+        await new Promise((resolve) => setTimeout(resolve, PROCESSING_MS));
       }
 
-      // Simulasi proses pembayaran (project tugas — belum ada payment gateway)
-      setPayment({ stage: "processing", plan: planName, price });
-      await new Promise((resolve) => setTimeout(resolve, PROCESSING_MS));
+      const endsAt = kind === "trial" ? new Date(Date.now() + TRIAL_LENGTH_DAYS * 86_400_000).toISOString() : null;
+      const subscription: SubscriptionValues = {
+        plan: planName.toLowerCase(),
+        status: kind === "trial" ? "trialing" : "active",
+        billing_cycle: billing,
+        expires_at: endsAt,
+      };
 
-      // create workspace/company
-      const { data: company, error: companyError } = await supabase
-        .from("companies")
-        .insert({
-          name: `${user.user_metadata?.first_name || "My"} Workspace`,
-        })
-        .select()
-        .single();
+      let existingCompanyId = companyId;
+      if (!existingCompanyId) {
+        const [{ data: profile }, { data: member }] = await Promise.all([
+          supabase
+            .from("user_profiles")
+            .select("company_id")
+            .eq("id", user.id)
+            .maybeSingle(),
+          supabase
+            .from("company_members")
+            .select("company_id")
+            .eq("user_id", user.id)
+            .eq("status", "active")
+            .limit(1)
+            .maybeSingle(),
+        ]);
+        existingCompanyId = profile?.company_id ?? member?.company_id ?? null;
+      }
 
-      if (companyError) throw companyError;
+      if (existingCompanyId) {
+        // One trial per workspace; an existing workspace can only subscribe.
+        if (kind === "trial") throw new Error("Your workspace has already used its free trial. Choose a plan to keep going.");
+        await saveSubscription(existingCompanyId, subscription);
+      } else {
+        // create workspace/company
+        const { data: company, error: companyError } = await supabase
+          .from("companies")
+          .insert({
+            name: setup?.name || `${user.user_metadata?.first_name || "My"} Workspace`,
+            ...(setup ? { business_type: setup.businessType, currency: setup.currency } : {}),
+          })
+          .select()
+          .single();
 
-      // insert member
-      const { error: memberError } = await supabase
-        .from("company_members")
-        .insert({
-          company_id: company.id,
-          user_id: user.id,
-          role: "owner",
-          status: "active",
-        });
+        if (companyError) throw companyError;
 
-      if (memberError) throw memberError;
+        // insert member
+        const { error: memberError } = await supabase
+          .from("company_members")
+          .insert({
+            company_id: company.id,
+            user_id: user.id,
+            role: "owner",
+            status: "active",
+          });
 
-      // update profile
-      const { error: profileError } = await supabase
-        .from("user_profiles")
-        .update({
-          company_id: company.id,
-          role: "owner",
-        })
-        .eq("id", user.id);
+        if (memberError) throw memberError;
 
-      if (profileError) throw profileError;
+        // update profile
+        const { error: profileError } = await supabase
+          .from("user_profiles")
+          .update({
+            company_id: company.id,
+            role: "owner",
+          })
+          .eq("id", user.id);
 
-      // create subscription
-      const { error: subscriptionError } = await supabase
-        .from("subscriptions")
-        .insert({
-          company_id: company.id,
-          plan: planName.toLowerCase(),
-          status: "active",
-          billing_cycle: billing,
-        });
+        if (profileError) throw profileError;
 
-      if (subscriptionError) throw subscriptionError;
+        // create subscription
+        const { error: subscriptionError } = await supabase
+          .from("subscriptions")
+          .insert({ company_id: company.id, ...subscription });
+
+        if (subscriptionError) throw subscriptionError;
+      }
 
       clearCompanyCache();
-      setPayment({ stage: "success", plan: planName, price });
-
+      setPayment({ kind, stage: "success", plan: planName, price, endsAt, setup });
     } catch (error) {
-      console.error("Subscribe error:", error);
-      const message = error instanceof Error ? error.message : "Something went wrong while activating your plan.";
-      setPayment({ stage: "error", plan: planName, price, message });
+      console.error("Checkout error:", error);
+      setPayment({ kind, stage: "error", plan: planName, price, setup, message: describeCheckoutError(error) });
     }
   };
 
@@ -187,12 +301,6 @@ export default function PricingPage() {
     setPayment(null);
     navigate("/dashboard", { replace: true });
   };
-
-  useEffect(() => {
-    if (!isCompanyLoading && companyId && !payment) {
-      navigate("/dashboard", { replace: true });
-    }
-  }, [companyId, isCompanyLoading, navigate, payment]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -204,7 +312,7 @@ export default function PricingPage() {
             as="h1"
             eyebrow="Pricing"
             title="Simple, transparent pricing"
-            lead="Choose the plan that works best for your team. All plans include a 14-day free trial."
+            lead="Choose the plan that works best for your team. Try Starter or Professional free for 14 days, no credit card required."
             className="max-w-[600px]"
             leadClassName="max-w-[560px]"
           />
@@ -264,20 +372,16 @@ export default function PricingPage() {
                     </p>
                   </div>
 
-                  <div className="space-y-2 text-center">
-                    <Button
-                      size="lg"
-                      variant={plan.highlighted ? "default" : "secondary"}
-                      className="w-full"
-                      onClick={() => handleSubscribe(plan.name, price)}
-                    >
-                      {plan.cta}
-                      {plan.highlighted && <ArrowRight className="!size-[18px]" />}
-                    </Button>
-                    {plan.highlighted && (
-                      <p className="text-caption font-normal text-muted-foreground">No credit card required for 14-day trial</p>
-                    )}
-                  </div>
+                  <PlanAction
+                    plan={plan.name}
+                    price={price}
+                    highlighted={plan.highlighted}
+                    defaultCta={plan.cta}
+                    hasWorkspace={hasWorkspace}
+                    current={workspace}
+                    busy={payment?.stage === "processing"}
+                    onCheckout={(kind) => startCheckout(kind, plan.name, price)}
+                  />
 
                   <div className="h-px bg-border" />
 
@@ -335,7 +439,9 @@ export default function PricingPage() {
         billing={billing}
         processingMs={PROCESSING_MS}
         onCancel={() => setPayment(null)}
-        onRetry={() => payment && void handleSubscribe(payment.plan, payment.price)}
+        onRetry={() => payment && void handleCheckout(payment.kind, payment.plan, payment.price, payment.setup)}
+        onSetupSubmit={(setup) => payment && void handleCheckout(payment.kind, payment.plan, payment.price, setup)}
+        defaultWorkspaceName={defaultWorkspaceName}
         onGoToDashboard={handleGoToDashboard}
       />
     </div>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useLocation, Navigate, useNavigate } from "react-router-dom";
+import { Link, useLocation, Navigate, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { RefreshCw } from "lucide-react";
+import { RefreshCw, Sparkles } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { useCompany } from "@/hooks/use-company";
 import { useWorkspaceSummary } from "@/hooks/use-workspace-summary";
@@ -16,6 +16,9 @@ import CommandPalette from "./CommandPalette";
 import Banner from "@/components/feedback/Banner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { isTrialExpired } from "@/lib/plans";
+import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/activity";
+import { PROFILE_UPDATED_EVENT } from "@/lib/profile-events";
 
 const COLLAPSED_STORAGE_KEY = "nexusflow:sidebar-collapsed";
 
@@ -46,21 +49,28 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   };
 
   // --- STATE PROFIL & NOTIFIKASI ---
-  const [profile, setProfile] = useState({ firstName: "Loading...", lastName: "", email: "..." });
+  const [profile, setProfile] = useState({ firstName: "Loading...", lastName: "", email: "...", avatarUrl: null as string | null });
+  const [profileVersion, setProfileVersion] = useState(0);
   const [unreadCount, setUnreadCount] = useState(0);
   const isMountedRef = useRef(false);
   const { companyId, isCompanyLoading, isCompanyRefreshing, companyError, refreshCompany } = useCompany();
   const { user, isAuthRefreshing } = useAuth();
   const workspace = useWorkspaceSummary(companyId);
 
+  // Latest user object for the profile fetch; the effect itself only reruns for a different user.
+  const userRef = useRef(user);
+  userRef.current = user;
+  const userId = user?.id;
+
   // --- EFFECT UNTUK PROFIL ---
   useEffect(() => {
+    const user = userRef.current;
     isMountedRef.current = true;
     const fetchProfile = async () => {
       try {
         if (user && isMountedRef.current) {
           const { data, error: profileError } = await withSupabaseTimeout(
-            supabase.from("user_profiles").select('first_name, last_name').eq('id', user.id).maybeSingle(),
+            supabase.from("user_profiles").select('first_name, last_name, avatar_url').eq('id', user.id).maybeSingle(),
             "layout profile"
           );
           if (profileError) console.error("Profile fetch error:", profileError);
@@ -68,7 +78,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           setProfile({
             firstName: data?.first_name || user.user_metadata?.first_name || "User",
             lastName: data?.last_name || user.user_metadata?.last_name || "",
-            email: user.email || ""
+            email: user.email || "",
+            avatarUrl: data?.avatar_url ?? null,
           });
         }
       } catch (error) {
@@ -80,7 +91,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return () => {
       isMountedRef.current = false;
     };
-  }, [user]);
+  }, [userId, profileVersion]);
+
+  // Settings → General fires this after saving the name or photo.
+  useEffect(() => {
+    const onProfileUpdated = () => setProfileVersion((v) => v + 1);
+    window.addEventListener(PROFILE_UPDATED_EVENT, onProfileUpdated);
+    return () => window.removeEventListener(PROFILE_UPDATED_EVENT, onProfileUpdated);
+  }, []);
 
   // --- EFFECT UNTUK REAL-TIME NOTIFIKASI ---
   const fetchUnreadCount = useCallback(async () => {
@@ -123,15 +141,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       .on(
         'postgres_changes',
         {
-          event: 'INSERT',
+          // All events, not just INSERT: marking items read is an UPDATE.
+          event: '*',
           schema: 'public',
           table: 'notifications',
           filter: `company_id=eq.${companyId}`
         },
-        () => {
-          setUnreadCount((prev) => prev + 1);
-          fetchUnreadCount();
-        }
+        () => fetchUnreadCount()
       )
       .subscribe((status, error) => {
         if (status === 'SUBSCRIBED') fetchUnreadCount();
@@ -140,8 +156,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         }
       });
 
+    // Same-tab updates (e.g. "Mark all read") refresh the badge without waiting for realtime.
+    const onLocalChange = () => fetchUnreadCount();
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, onLocalChange);
+
     return () => {
       isMountedRef.current = false;
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, onLocalChange);
       safeRemoveChannel(channel);
     };
   }, [companyId, fetchUnreadCount]);
@@ -186,6 +207,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     fullName,
     email: profile.email,
     initials: `${profile.firstName.charAt(0)}${profile.lastName.charAt(0)}`.toUpperCase(),
+    avatarUrl: profile.avatarUrl,
   };
 
   if (isCompanyLoading && !companyId) {
@@ -196,6 +218,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return <Navigate to="/pricing" replace />;
   }
 
+  const trialEnded = isTrialExpired(workspace?.status, workspace?.expiresAt);
   const isRefreshing = isCompanyRefreshing || isAuthRefreshing || isResumeRecovering;
 
   const sidebarProps = {
@@ -273,8 +296,21 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         />
 
         <main className="flex-1 overflow-y-auto">
-          {(companyError || !isOnline) && (
+          {(companyError || !isOnline || trialEnded) && (
             <div className="space-y-3 px-4 pt-6 sm:px-6 lg:px-8">
+              {trialEnded && (
+                <Banner
+                  tone="warning"
+                  icon={Sparkles}
+                  title="Your free trial has ended"
+                  description="Choose a plan to keep using your workspace."
+                  action={
+                    <Button asChild size="sm">
+                      <Link to="/pricing">Choose a plan</Link>
+                    </Button>
+                  }
+                />
+              )}
               {companyError && (
                 <Banner
                   tone="danger"

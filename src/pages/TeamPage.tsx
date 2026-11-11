@@ -1,27 +1,47 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { Search, Download, Plus, Edit, Trash2, Shield, Eye, FileEdit, X, Loader2, Mail, Save, type LucideIcon } from "lucide-react";
+import { motion } from "framer-motion";
+import { ChevronLeft, ChevronRight, Download, Ellipsis, Eye, Link2, Mail, Pencil, Search, ShieldCheck, Trash2, Users } from "lucide-react";
 import DeleteConfirmModal from "@/components/modals/DeleteConfirmModal";
+import MemberAccessDialog from "@/components/team/MemberAccessDialog";
+import PageHeader from "@/components/app/PageHeader";
+import PersonAvatar from "@/components/app/PersonAvatar";
+import EmptyState from "@/components/app/EmptyState";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { logActivity } from "../lib/activityLogger";
 import { useCompany } from "@/hooks/use-company";
+import { useWorkspaceSummary } from "@/hooks/use-workspace-summary";
 import { safeRemoveChannel, withSupabaseTimeout } from "@/lib/supabaseLifecycle";
 import { useSupabaseResumeRecovery } from "@/hooks/use-supabase-resume-recovery";
+import { toDbRole, toUiRole, type UiRole } from "@/lib/team";
+import { cn } from "@/lib/utils";
 
-// --- TYPES & UTILS ---
+const PAGE_SIZE = 6;
+const ALL_ROLES = "all";
+
 interface TeamMember {
   id: string;
-  userId?: string;
+  userId: string;
   name: string;
   email: string;
-  role: string;
-  status: string; 
-  date_added: string;
-  initials: string;
-  color: string;
-  is_invite: boolean; 
+  role: UiRole;
+  isOwner: boolean;
+  joinedAt: string;
+}
+
+interface PendingInvite {
+  id: string;
+  email: string;
+  role: UiRole;
+  createdAt: string;
 }
 
 interface UserProfileRow {
@@ -30,7 +50,6 @@ interface UserProfileRow {
   last_name?: string | null;
   email?: string | null;
   role?: string | null;
-  company_id?: string | null;
   created_at?: string | null;
 }
 
@@ -40,80 +59,73 @@ interface CompanyMemberRow {
   role?: string | null;
   status?: string | null;
   created_at?: string | null;
-  user_profiles?: UserProfileRow | UserProfileRow[] | null;
 }
 
-interface InvitationRow {
-  id: string;
-  company_id: string;
-  email: string;
-  status: string;
-  created_at: string;
+type RemoveTarget = { kind: "members"; members: TeamMember[] } | { kind: "invite"; invite: PendingInvite };
+
+const formatDate = (iso: string) =>
+  new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+
+const roleBadge: Record<UiRole, { variant: "default" | "info" | "neutral"; icon: typeof ShieldCheck }> = {
+  Admin: { variant: "default", icon: ShieldCheck },
+  Editor: { variant: "info", icon: Pencil },
+  Viewer: { variant: "neutral", icon: Eye },
+};
+
+function RoleBadge({ role, owner }: { role: UiRole; owner?: boolean }) {
+  const { variant, icon: Icon } = roleBadge[role];
+  return (
+    <Badge variant={variant}>
+      <Icon strokeWidth={2} /> {owner ? "Owner" : role}
+    </Badge>
+  );
 }
 
-const roleIcons: Record<string, LucideIcon> = {
-  Admin: Shield,
-  Editor: FileEdit,
-  Viewer: Eye,
-};
+function csvEscape(value: string) {
+  return /[",\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
 
-const avatarColors = ["bg-primary", "bg-info", "bg-success", "bg-warning", "bg-violet-500", "bg-destructive"];
-
-const toUiRole = (role?: string | null) => {
-  if (role === "owner" || role === "admin") return "Admin";
-  if (role === "editor") return "Editor";
-  return "Viewer";
-};
-
-const toDbRole = (role: string) => {
-  if (role === "Admin") return "admin";
-  if (role === "Editor") return "editor";
-  return "member";
-};
-
-const colorFor = (value: string) => avatarColors[Math.abs([...value].reduce((sum, char) => sum + char.charCodeAt(0), 0)) % avatarColors.length];
-
-const statusStyles: Record<string, string> = {
-  Active: "bg-success/10 text-success",
-  Pending: "bg-warning/10 text-warning",
-  Inactive: "bg-muted text-muted-foreground",
-};
+/** Inserts an invitation, retrying without `role` if the invitation_role migration hasn't run yet. */
+async function insertInvitation(companyId: string, email: string, role: UiRole) {
+  const base = { company_id: companyId, email, status: "pending" };
+  const withRole = await supabase.from("invitations").insert([{ ...base, role: toDbRole(role) }]);
+  if (!withRole.error) return { roleSaved: true };
+  if (/role/.test(withRole.error.message)) {
+    const fallback = await supabase.from("invitations").insert([base]);
+    if (fallback.error) throw fallback.error;
+    return { roleSaved: false };
+  }
+  throw withRole.error;
+}
 
 export default function TeamPage() {
   const { toast } = useToast();
   const { user } = useAuth();
-  
-  // --- DATABASE STATES ---
+  const { companyId, isCompanyLoading } = useCompany();
+  const workspace = useWorkspaceSummary(companyId);
+
   const [members, setMembers] = useState<TeamMember[]>([]);
+  const [invites, setInvites] = useState<PendingInvite[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const isMountedRef = useRef(false);
-  const { companyId, isCompanyLoading, companyError } = useCompany();
 
-  // --- FILTER & PAGINATION STATES ---
   const [searchQuery, setSearchQuery] = useState("");
-  const [roleFilter, setRoleFilter] = useState("All Roles");
-  const [statusFilter, setStatusFilter] = useState("Status: All");
-  const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 5;
+  const [roleFilter, setRoleFilter] = useState(ALL_ROLES);
+  const [page, setPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
-  // --- INTERACTION STATES ---
-  const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
-  const [deleteTarget, setDeleteTarget] = useState<TeamMember | null>(null);
-
-  // --- MODAL STATES ---
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editTargetId, setEditTargetId] = useState<string | null>(null);
-  const [formData, setFormData] = useState({ name: "", email: "", role: "Viewer", status: "Active" });
+  const [dialog, setDialog] = useState<{ mode: "invite" } | { mode: "edit"; member: TeamMember } | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<RemoveTarget | null>(null);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
     if (!isCompanyLoading && !companyId) {
       setIsLoading(false);
       setMembers([]);
+      setInvites([]);
     }
   }, [companyId, isCompanyLoading]);
 
-  // --- FETCH DATA (GABUNGAN PROFIL & UNDANGAN) ---
   const fetchMembers = useCallback(async (showLoading = false) => {
     if (!companyId) {
       if (showLoading) setIsLoading(false);
@@ -123,7 +135,7 @@ export default function TeamPage() {
     try {
       if (showLoading) setIsLoading(true);
 
-      const { data: companyMembers, error: companyMembersError } = await withSupabaseTimeout(
+      const { data: companyMembers, error: membersError } = await withSupabaseTimeout(
         supabase
           .from("company_members")
           .select("id, user_id, role, status, created_at")
@@ -131,201 +143,56 @@ export default function TeamPage() {
           .eq("status", "active"),
         "team active members"
       );
+      if (membersError) throw membersError;
+      const rows = (companyMembers ?? []) as CompanyMemberRow[];
 
-      console.log("COMPANY MEMBERS RAW", companyMembers);
-      console.log("COMPANY MEMBERS ERROR", companyMembersError);
-
-      if (companyMembersError) throw companyMembersError;
-
-      const activeMembers: CompanyMemberRow[] = Array.isArray(companyMembers)
-        ? (companyMembers as CompanyMemberRow[])
-        : [];
-
-      const userIds = Array.from(
-        new Set(
-          activeMembers
-            .map((member) => member.user_id)
-            .filter((id): id is string => typeof id === "string" && id.trim().length > 0)
-        )
-      );
-
+      const userIds = [...new Set(rows.map((m) => m.user_id).filter(Boolean))];
       let profileMap = new Map<string, UserProfileRow>();
-
       if (userIds.length > 0) {
-        const query = supabase
-          .from("user_profiles")
-          .select("id, first_name, last_name, email, role, company_id, created_at")
-          .in("id", userIds);
-
-        console.log("USER IDS SENT TO USER_PROFILES", userIds);
-        console.log("USER PROFILE QUERY", query);
-
-        const { data: profileRows, error: profileError } = await withSupabaseTimeout(
-          query,
+        const { data: profiles, error: profileError } = await withSupabaseTimeout(
+          supabase.from("user_profiles").select("id, first_name, last_name, email, role, created_at").in("id", userIds),
           "team user profiles"
         );
-
-        const profiles: UserProfileRow[] = Array.isArray(profileRows) ? profileRows : [];
-        console.log("PROFILE RESPONSE", profiles);
-        console.log("PROFILE ROWS", profileRows);
-        console.log("PROFILE ERROR", profileError);
-        console.log(
-          "PROFILE IDS",
-          profiles.map((p) => ({ id: p.id, email: p.email, idType: typeof p.id }))
-        );
-
-        console.log(
-          "MEMBER IDS TYPES",
-          activeMembers.map((m) => ({ user_id: m.user_id, type: typeof m.user_id }))
-        );
-
         if (profileError) throw profileError;
-
-        profileMap = new Map<string, UserProfileRow>(profiles.map((profile) => [profile.id, profile]));
-
-        console.log("PROFILE MAP KEYS", Array.from(profileMap.keys()));
-        console.log("PROFILE MAP", profileMap);
-        console.log("PROFILE MAP SIZE", profileMap.size);
-        console.log("PROFILE MAP ENTRIES", Array.from(profileMap.entries()).map(([key, val]) => ({ key, id: val.id, email: val.email, name: `${val.first_name} ${val.last_name}` })));
+        profileMap = new Map((profiles ?? []).map((p: UserProfileRow) => [p.id, p]));
       }
 
-      const { data: pendingInvites, error: invitesError } = await withSupabaseTimeout(
-        supabase
-          .from("invitations")
-          .select("*")
-          .eq("company_id", companyId)
-          .eq("status", "pending"),
+      const { data: pendingRows, error: invitesError } = await withSupabaseTimeout(
+        supabase.from("invitations").select("*").eq("company_id", companyId).eq("status", "pending").order("created_at", { ascending: false }),
         "team pending invitations"
       );
-
-      console.log("INVITATIONS RAW", pendingInvites);
-      console.log("INVITATIONS ERROR", invitesError);
-
       if (invitesError) throw invitesError;
 
-      const activeData: TeamMember[] = activeMembers
-        .map((member): TeamMember | null => {
-          console.log("=== MAPPING ACTIVE MEMBER ===");
-          console.log("ACTIVE MEMBER USER ID", member.user_id);
-          console.log("LOOKUP IN PROFILE MAP", profileMap.get(member.user_id));
-          
-          const profile = profileMap.get(member.user_id);
-          
-          console.log("PROFILE FOUND", profile);
-          console.log("PROFILE KEYS", profile ? Object.keys(profile) : null);
-          console.log("PROFILE FIRST NAME", profile?.first_name);
-          console.log("PROFILE LAST NAME", profile?.last_name);
-          console.log("PROFILE EMAIL", profile?.email);
+      const activeMembers: TeamMember[] = rows.map((member) => {
+        const profile = profileMap.get(member.user_id);
+        const name = `${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim() || profile?.email || "Unknown member";
+        return {
+          id: member.id,
+          userId: member.user_id,
+          name,
+          email: profile?.email ?? "",
+          role: toUiRole(member.role ?? profile?.role),
+          isOwner: member.role === "owner",
+          joinedAt: member.created_at || profile?.created_at || new Date().toISOString(),
+        };
+      }).sort((a, b) => a.joinedAt.localeCompare(b.joinedAt));
 
-          const fullName = profile
-            ? `${profile.first_name || ""} ${profile.last_name || ""}`.trim() || profile.email || "Unknown User"
-            : member.user_id;
+      const memberEmails = new Set(activeMembers.map((m) => m.email.toLowerCase()).filter(Boolean));
+      const pending: PendingInvite[] = (pendingRows ?? [])
+        .filter((inv) => inv.email && !memberEmails.has(inv.email.toLowerCase()))
+        .map((inv) => ({ id: inv.id, email: inv.email, role: toUiRole(inv.role), createdAt: inv.created_at }));
 
-          console.log("FULL NAME RESULT", fullName);
-          console.log("EMAIL RESULT", profile?.email ?? "");
-
-          const mappedMember: TeamMember = {
-            id: member.id,
-            userId: member.user_id,
-            name: fullName,
-            email: profile?.email ?? "",
-            role: toUiRole(member.role ?? profile?.role),
-            status: "Active",
-            date_added: new Date(member.created_at || profile?.created_at || Date.now()).toLocaleDateString("en-US", {
-              month: "short",
-              day: "2-digit",
-              year: "numeric",
-            }),
-            initials: fullName.substring(0, 2).toUpperCase(),
-            color: colorFor(profile?.id ?? "unknown"),
-            is_invite: false,
-          };
-
-          console.log("FINAL ACTIVE MEMBER", mappedMember);
-
-          return mappedMember;
-        })
-        .filter((item): item is TeamMember => item !== null);
-
-      const activeEmails = new Set(activeData.map((m) => (m.email || '').toLowerCase()).filter(Boolean));
-      const profileEmails = new Set(Array.from(profileMap.values()).map((p) => (p.email || '').toLowerCase()).filter(Boolean));
-
-      const pendingData: TeamMember[] = (Array.isArray(pendingInvites) ? pendingInvites : [])
-        .filter((inv) => {
-          const email = (inv.email || '').toLowerCase();
-          return email && !activeEmails.has(email) && !profileEmails.has(email);
-        })
-        .map((inv) => ({
-          id: inv.id,
-          name: "Pending Invite",
-          email: inv.email,
-          role: "Viewer",
-          status: "Pending",
-          date_added: new Date(inv.created_at).toLocaleDateString("en-US", {
-            month: "short",
-            day: "2-digit",
-            year: "numeric",
-          }),
-          initials: "@",
-          color: "bg-warning",
-          is_invite: true,
-        }));
-
-      console.log("ACTIVE MEMBERS", activeData);
-      console.log("PENDING INVITES", pendingData);
-
-      const combinedData = [...activeData, ...pendingData];
-
-      console.log("FINAL MEMBERS", combinedData);
-
-      if (isMountedRef.current) setMembers(combinedData);
+      if (isMountedRef.current) {
+        setMembers(activeMembers);
+        setInvites(pending);
+      }
     } catch (error) {
       console.error("Error fetching members:", error);
-      toast({ title: "Fetch Error", description: "Failed to load team members.", variant: "destructive" });
+      toast({ title: "Couldn't load your team", description: "Check your connection and refresh.", variant: "destructive" });
     } finally {
       if (isMountedRef.current) setIsLoading(false);
     }
   }, [companyId, toast]);
-
-  const handleResendInvite = async (inviteId: string, email: string) => {
-    if (!companyId) {
-      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
-      return;
-    }
-
-    try {
-      setIsLoading(true);
-
-      const { error } = await supabase
-        .from('invitations')
-        .update({ updated_at: new Date().toISOString() })
-        .eq('id', inviteId);
-
-      if (error) throw error;
-
-      await supabase.from('notifications').insert([{
-        company_id: companyId,
-        type: 'invite',
-        user_name: 'You',
-        action: 'resent',
-        target: email,
-        message: `Invitation resent to ${email}`,
-        time: 'Just now',
-        unread: true,
-        icon_name: 'Mail',
-        icon_bg: 'bg-primary/10 text-primary',
-        has_action: false,
-      }]);
-
-      toast({ title: 'Invitation resent', description: `Resent to ${email}` });
-    } catch (err) {
-      console.error('Resend invite error:', err);
-      toast({ title: 'Error', description: 'Failed to resend invitation.', variant: 'destructive' });
-    } finally {
-      await fetchMembers();
-      setIsLoading(false);
-    }
-  };
 
   useSupabaseResumeRecovery({
     enabled: Boolean(companyId),
@@ -342,7 +209,6 @@ export default function TeamPage() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'user_profiles', filter: `company_id=eq.${companyId}` }, () => fetchMembers())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'invitations', filter: `company_id=eq.${companyId}` }, () => fetchMembers())
       .subscribe((status, error) => {
-        console.info("[team realtime] status:", status, error ?? "");
         if (status === 'SUBSCRIBED') fetchMembers();
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           console.warn("[team realtime] disconnected; mutation fetch fallback remains active.", { status, error });
@@ -355,541 +221,435 @@ export default function TeamPage() {
     };
   }, [companyId, fetchMembers]);
 
-  // --- FILTER & PAGINATION LOGIC ---
-  const activeMembers = members.filter((m) => !m.is_invite);
-  const pendingInvites = members.filter((m) => m.is_invite);
+  // --- Permissions: only owners/admins manage the team (RLS enforces this server-side too) ---
+  const me = members.find((m) => m.userId === user?.id);
+  const canManage = Boolean(me && (me.isOwner || me.role === "Admin"));
+  const canChange = (member: TeamMember) => canManage && !member.isOwner && member.userId !== user?.id;
 
+  // --- Filtering & pagination ---
   const filtered = useMemo(() => {
-    const filteredMembers = activeMembers.filter((m) => {
-      const matchSearch = searchQuery === "" || m.name.toLowerCase().includes(searchQuery.toLowerCase()) || m.email.toLowerCase().includes(searchQuery.toLowerCase());
-      const matchRole = roleFilter === "All Roles" || m.role === roleFilter;
-      const matchStatus = statusFilter === "Status: All" || m.status === statusFilter.replace("Status: ", "");
-      return matchSearch && matchRole && matchStatus;
-    });
+    const term = searchQuery.trim().toLowerCase();
+    return members.filter((m) =>
+      (!term || m.name.toLowerCase().includes(term) || m.email.toLowerCase().includes(term) || m.role.toLowerCase().includes(term)) &&
+      (roleFilter === ALL_ROLES || m.role === roleFilter)
+    );
+  }, [members, searchQuery, roleFilter]);
 
-    console.log("FILTER INPUT", activeMembers);
-    console.log("FILTER OUTPUT", filteredMembers);
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const currentPage = Math.min(page, totalPages);
+  const pageMembers = filtered.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const selectable = pageMembers.filter(canChange);
+  const selectedMembers = members.filter((m) => selectedIds.includes(m.id));
+  const allSelected = selectable.length > 0 && selectable.every((m) => selectedIds.includes(m.id));
+  const someSelected = selectable.some((m) => selectedIds.includes(m.id));
 
-    return filteredMembers;
-  }, [activeMembers, searchQuery, roleFilter, statusFilter]);
+  const resetSelection = () => setSelectedIds([]);
 
-  const totalPages = Math.ceil(filtered.length / itemsPerPage) || 1;
-  const paginatedMembers = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
-
-  console.log("PAGINATED MEMBERS", paginatedMembers);
-
-  const handleFilterChange = (setter: React.Dispatch<React.SetStateAction<string>>, value: string) => {
-    setter(value);
-    setCurrentPage(1);
-    setSelectedEmails([]);
-  };
-
-  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.checked) setSelectedEmails(paginatedMembers.map(m => m.email));
-    else setSelectedEmails([]);
-  };
-
-  const handleSelectOne = (email: string) => {
-    setSelectedEmails(prev => prev.includes(email) ? prev.filter(e => e !== email) : [...prev, email]);
-  };
-
-  // --- CRUD LOGIC ---
-  const handleDelete = async () => {
-    if (!companyId) {
-      toast({ title: "Company Error", description: "Company context belum tersedia.", variant: "destructive" });
+  // --- Mutations ---
+  const handleInvite = async (email: string, role: UiRole) => {
+    if (!companyId) return;
+    if (members.some((m) => m.email.toLowerCase() === email)) {
+      toast({ title: "Already a member", description: `${email} is already in this workspace.`, variant: "destructive" });
       return;
     }
-
-    if (deleteTarget) {
-      try {
-        setIsLoading(true);
-        if (deleteTarget.is_invite) {
-          const { error } = await supabase.from('invitations').delete().eq('company_id', companyId).eq('id', deleteTarget.id);
-          if (error) throw error;
-        } else {
-          const { error } = await supabase
-            .from("company_members")
-            .delete()
-            .eq("company_id", companyId)
-            .eq("id", deleteTarget.id);
-          if (error) throw error;
-
-          if (deleteTarget.userId) {
-            const { error: profileError } = await supabase
-              .from("user_profiles")
-              .update({ company_id: null })
-              .eq("company_id", companyId)
-              .eq("id", deleteTarget.userId);
-            if (profileError) throw profileError;
-          }
-        }
-        
-        toast({ title: "Member removed", description: "Access has been successfully revoked." });
-        
-        await logActivity({
-          user: "You",
-          action: "removed a team member:",
-          target: deleteTarget.email,
-          type: "warning",
-          iconName: "AlertTriangle",
-          iconBg: "bg-destructive/10 text-destructive",
-          companyId
-        });
-
-        setSelectedEmails(prev => prev.filter(e => e !== deleteTarget.email));
-        setDeleteTarget(null);
-      } catch (error) {
-        console.error("Delete team member error:", error);
-        toast({ title: "Error", description: "Failed to remove team member.", variant: "destructive" });
-      } finally {
-        await fetchMembers(); // Refresh data
-      }
-    }
-  };
-
-  const handleOpenAdd = () => {
-    setEditTargetId(null);
-    setFormData({ name: "", email: "", role: "Viewer", status: "Active" });
-    setIsModalOpen(true);
-  };
-
-  const handleOpenEdit = (member: TeamMember) => {
-    setEditTargetId(member.id);
-    setFormData({ name: member.name, email: member.email, role: member.role, status: member.status });
-    setIsModalOpen(true);
-  };
-
-  const handleSaveMember = async () => {
-    if (!companyId) {
-      toast({
-        title: "Company Error",
-        description: "Company context belum tersedia.",
-        variant: "destructive",
-      });
-
-      return;
-    }
-
-    if (!formData.email.trim()) {
-      toast({
-        title: "Error",
-        description: "Email is required.",
-        variant: "destructive",
-      });
-
+    if (invites.some((inv) => inv.email.toLowerCase() === email)) {
+      toast({ title: "Already invited", description: `There's already a pending invitation for ${email}.`, variant: "destructive" });
       return;
     }
 
     setIsSaving(true);
-
     try {
-      const normalizedEmail = formData.email.trim().toLowerCase();
-
-      if (editTargetId) {
-        const role = toDbRole(formData.role);
-        const { error: memberError } = await supabase
-          .from("company_members")
-          .update({ role })
-          .eq("company_id", companyId)
-          .eq("id", editTargetId);
-
-        if (memberError) throw memberError;
-
-        const editedMember = members.find((m) => m.id === editTargetId);
-        if (editedMember?.userId) {
-          const { error: profileError } = await supabase
-            .from("user_profiles")
-            .update({ role })
-            .eq("id", editedMember.userId);
-
-          if (profileError) throw profileError;
-        }
-
-        toast({ title: "Member Updated", description: "Role berhasil diperbarui." });
-        setIsModalOpen(false);
-        await fetchMembers();
-        return;
-      }
-
-      if (
-        members.some(
-          (m) => m.email.toLowerCase() === normalizedEmail
-        )
-      ) {
-        toast({
-          title: "Exists",
-          description: "User already exists in this workspace.",
-          variant: "destructive",
-        });
-
-        return;
-      }
-
-      const { data: existingInvite, error: inviteCheckError } = await supabase
-        .from("invitations")
-        .select("id")
-        .eq("company_id", companyId)
-        .eq("email", normalizedEmail)
-        .eq("status", "pending")
-        .maybeSingle();
-
-      if (inviteCheckError) throw inviteCheckError;
-      if (existingInvite) {
-        toast({
-          title: "Already Invited",
-          description: "Invitation untuk email ini masih pending.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      const { data: existingUser, error: userError } = await supabase
-        .from("user_profiles")
-        .select("*")
-        .eq("email", normalizedEmail)
-        .maybeSingle();
-
-      if (userError) {
-        throw userError;
-      }
-
-      const role = toDbRole(formData.role);
-
-      if (existingUser) {
-        const { data: existingMember, error: memberCheckError } = await supabase
-          .from("company_members")
-          .select("id, status")
-          .eq("company_id", companyId)
-          .eq("user_id", existingUser.id)
-          .maybeSingle();
-
-        if (memberCheckError) throw memberCheckError;
-
-        if (existingMember) {
-          const { error: reactivateError } = await supabase
-            .from("company_members")
-            .update({ role, status: "active" })
-            .eq("id", existingMember.id);
-          if (reactivateError) throw reactivateError;
-        } else {
-          // Instead of directly inserting into company_members (which would auto-add the user),
-          // create a pending invitation and notify the invited user. The invited user will be
-          // added to company_members only when they Accept the invitation.
-          const { data: inviteData, error: invitationError } = await supabase
-            .from("invitations")
-            .insert([
-              {
-                company_id: companyId,
-                email: normalizedEmail,
-                status: "pending",
-              },
-            ])
-            .select()
-            .maybeSingle();
-
-          if (invitationError) throw invitationError;
-
-          // notification will be created below in the shared notification section
-        }
-      } else {
-        const { error: invitationError } = await supabase
-          .from("invitations")
-          .insert([
-            {
-              company_id: companyId,
-              email: normalizedEmail,
-              status: "pending",
-            },
-          ]);
-
-        if (invitationError) throw invitationError;
-      }
-
-      // =====================================================
-      // SUCCESS
-      // =====================================================
-
+      const { roleSaved } = await insertInvitation(companyId, email, role);
+      setDialog(null);
       toast({
-        title: "Member Added",
-        description: existingUser
-          ? `${normalizedEmail} berhasil ditambahkan ke workspace.`
-          : `Invitation dikirim untuk ${normalizedEmail}.`,
+        title: "Invitation created",
+        description: roleSaved
+          ? `${email} will be asked to join as ${role} when they log in.`
+          : `${email} will be asked to join when they log in. They'll start as Viewer until the invitation_role migration is applied.`,
       });
-
-      // INSERT NOTIFICATION
-      await supabase
-        .from("notifications")
-        .insert([
-          {
-            company_id: companyId,
-            user_id: existingUser ? existingUser.id : null,
-            type: "invitation",
-            user_name: "You",
-            action: "invited",
-            target: normalizedEmail,
-            message: existingUser ? `${normalizedEmail} joined the workspace` : `${normalizedEmail} was invited to the workspace`,
-            time: "Just now",
-            unread: true,
-            icon_name: "Users",
-            icon_bg: "bg-primary/10 text-primary",
-            has_action: true,
-          },
-        ]);
-
-
-      setIsModalOpen(false);
-
+      await logActivity({ user: "You", action: "invited a new member:", target: email, message: `Role: ${role}`, type: "invite", iconName: "UserPlus", iconBg: "bg-success/10 text-success", companyId });
       await fetchMembers();
-    } catch (error: unknown) {
+    } catch (error) {
       console.error("Invite member error:", error);
-
-      toast({
-        title: "Error",
-        description: error instanceof Error ? error.message : "Failed to add member.",
-        variant: "destructive",
-      });
+      toast({ title: "Couldn't send the invitation", description: error instanceof Error ? error.message : "Try again.", variant: "destructive" });
     } finally {
       setIsSaving(false);
     }
   };
 
+  const handleEditRole = async (member: TeamMember, role: UiRole) => {
+    if (!companyId) return;
+    if (role === member.role) {
+      setDialog(null);
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const dbRole = toDbRole(role);
+      const { error } = await supabase.from("company_members").update({ role: dbRole }).eq("company_id", companyId).eq("id", member.id);
+      if (error) throw error;
+      const { error: profileError } = await supabase.from("user_profiles").update({ role: dbRole }).eq("id", member.userId);
+      if (profileError) throw profileError;
+
+      setDialog(null);
+      toast({ title: "Access updated", description: `${member.name} is now ${role}.` });
+      await logActivity({ user: "You", action: "changed the role of", target: member.name, message: `Now ${role}`, type: "success", iconName: "Users", iconBg: "bg-primary/10 text-primary", companyId });
+      await fetchMembers();
+    } catch (error) {
+      console.error("Edit role error:", error);
+      toast({ title: "Couldn't update access", description: "Try again.", variant: "destructive" });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleRemove = async (target: RemoveTarget) => {
+    if (!companyId) return;
+    try {
+      if (target.kind === "invite") {
+        const { error } = await supabase.from("invitations").delete().eq("company_id", companyId).eq("id", target.invite.id);
+        if (error) throw error;
+        toast({ title: "Invitation cancelled", description: `${target.invite.email} can no longer join with that invite.` });
+      } else {
+        for (const member of target.members) {
+          const { error } = await supabase.from("company_members").delete().eq("company_id", companyId).eq("id", member.id);
+          if (error) throw error;
+          const { error: profileError } = await supabase.from("user_profiles").update({ company_id: null }).eq("company_id", companyId).eq("id", member.userId);
+          if (profileError) throw profileError;
+          await logActivity({ user: "You", action: "removed a team member:", target: member.email || member.name, type: "warning", iconName: "AlertTriangle", iconBg: "bg-destructive/10 text-destructive", companyId });
+        }
+        toast({
+          title: target.members.length === 1 ? "Member removed" : `${target.members.length} members removed`,
+          description: "Their access was revoked immediately.",
+        });
+        resetSelection();
+      }
+    } catch (error) {
+      console.error("Remove error:", error);
+      toast({ title: "Couldn't complete the removal", description: "Some changes may not have been saved. Refresh to check.", variant: "destructive" });
+    } finally {
+      await fetchMembers();
+    }
+  };
+
+  const copySignupLink = async (invite: PendingInvite) => {
+    const link = `${window.location.origin}/login?mode=signup`;
+    try {
+      await navigator.clipboard.writeText(link);
+      toast({ title: "Sign-up link copied", description: `Send it to ${invite.email}. Signing up with that email adds them to the workspace.` });
+    } catch {
+      toast({ title: "Copy this link", description: link });
+    }
+  };
+
+  const handleExport = () => {
+    const rows = [
+      ["Name", "Email", "Role", "Status", "Date joined"],
+      ...members.map((m) => [m.name, m.email, m.isOwner ? "Owner" : m.role, "Active", formatDate(m.joinedAt)]),
+      ...invites.map((inv) => ["", inv.email, inv.role, "Pending", formatDate(inv.createdAt)]),
+    ];
+    const csv = rows.map((row) => row.map(csvEscape).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "nexusflow-team.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const showSkeleton = (isCompanyLoading && !companyId) || (Boolean(companyId) && isLoading);
+  const removeTitle = removeTarget?.kind === "invite"
+    ? "Cancel invitation?"
+    : removeTarget && removeTarget.members.length > 1 ? `Remove ${removeTarget.members.length} members?` : "Remove member?";
+
   return (
-    <div className="p-6 lg:p-10 max-w-7xl mx-auto relative">
-      <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold text-foreground tracking-tight">Team Management</h1>
-          <p className="text-muted-foreground mt-1">Manage your team access, roles, and permissions.</p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border bg-card text-muted-foreground font-medium hover:bg-muted shadow-sm transition-colors text-sm">
-            <Download className="h-4 w-4" /> Export
-          </button>
-          <motion.button onClick={handleOpenAdd} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary text-primary-foreground font-medium shadow-primary-glow text-sm">
-            <Mail className="h-4 w-4" /> Invite Colleague
-          </motion.button>
-        </div>
-      </header>
-
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="bg-card rounded-2xl shadow-card border border-border overflow-hidden relative">
-        
-        {((isCompanyLoading && !companyId) || (Boolean(companyId) && isLoading)) && (
-          <div className="absolute inset-0 z-10 bg-background/50 backdrop-blur-sm flex items-center justify-center">
-            <Loader2 className="w-8 h-8 animate-spin text-primary" />
-          </div>
-        )}
-
-        {companyError && (
-          <div className="m-6 rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            Gagal memuat company context. Silakan refresh atau login ulang.
-          </div>
-        )}
-
-        {!isCompanyLoading && !companyId && !companyError && (
-          <div className="m-6 rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
-            Company context belum tersedia. Hubungi admin workspace Anda.
-          </div>
-        )}
-
-        {/* Toolbar */}
-        <div className="p-6 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="relative w-full sm:w-96 group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
-            <input value={searchQuery} onChange={(e) => handleFilterChange(setSearchQuery, e.target.value)} placeholder="Search by name, email, or role..." className="block w-full pl-10 pr-3 py-3 border-none bg-muted rounded-xl text-sm focus:ring-2 focus:ring-primary/20 transition-all placeholder:text-muted-foreground text-foreground" />
-          </div>
-          <div className="flex items-center gap-2">
-            <select value={roleFilter} onChange={(e) => handleFilterChange(setRoleFilter, e.target.value)} className="bg-card border border-border text-foreground py-2.5 pl-4 pr-10 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary/20 transition-colors">
-              <option>All Roles</option>
-              <option>Admin</option>
-              <option>Editor</option>
-              <option>Viewer</option>
-            </select>
-            <select value={statusFilter} onChange={(e) => handleFilterChange(setStatusFilter, e.target.value)} className="bg-card border border-border text-foreground py-2.5 pl-4 pr-10 rounded-xl text-sm font-medium focus:ring-2 focus:ring-primary/20 transition-colors">
-              <option>Status: All</option>
-              <option>Active</option>
-              <option>Pending</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-border bg-muted/20">
-                <th className="py-4 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider w-10">
-                  <input type="checkbox" checked={paginatedMembers.length > 0 && selectedEmails.length === paginatedMembers.length} onChange={handleSelectAll} className="rounded border-border text-primary focus:ring-primary/30 w-4 h-4 cursor-pointer" />
-                </th>
-                <th className="py-4 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider">User</th>
-                <th className="py-4 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Role</th>
-                <th className="py-4 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Status</th>
-                <th className="py-4 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider">Date Joined</th>
-                <th className="py-4 px-6 text-xs font-semibold text-muted-foreground uppercase tracking-wider text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/50">
-              {paginatedMembers.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="py-16 text-center text-muted-foreground">
-                    <p className="text-lg font-medium mb-1">No members found</p>
-                    <p className="text-sm">Try adjusting your search or filters.</p>
-                  </td>
-                </tr>
-              ) : (
-                paginatedMembers.map((m, i) => {
-                  const RoleIcon = roleIcons[m.role] || Eye;
-
-                  return (
-                    <motion.tr key={m.id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }} className={`group hover:bg-muted/50 transition-colors ${selectedEmails.includes(m.email) ? "bg-primary/5" : ""}`}>
-                      <td className="py-5 px-6">
-                        <input type="checkbox" checked={selectedEmails.includes(m.email)} onChange={() => handleSelectOne(m.email)} className={`rounded border-border text-primary focus:ring-primary/30 w-4 h-4 cursor-pointer transition-opacity ${selectedEmails.includes(m.email) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`} />
-                      </td>
-                      <td className="py-5 px-6">
-                        <div className="flex items-center gap-4">
-                          <div className={`w-10 h-10 rounded-full ${m.color} bg-opacity-20 flex items-center justify-center font-bold text-sm ${m.is_invite ? 'text-warning' : 'text-foreground'}`}>
-                            {m.initials}
-                          </div>
-                          <div>
-                            <div className="font-semibold text-foreground">{m.name}</div>
-                            <div className="text-sm text-muted-foreground">{m.email}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="py-5 px-6">
-                        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-                          <RoleIcon className="h-4 w-4 text-muted-foreground" />
-                          {m.role}
-                        </div>
-                      </td>
-                      <td className="py-5 px-6">
-                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${statusStyles[m.status] || statusStyles.Inactive}`}>
-                          <span className="w-1.5 h-1.5 rounded-full bg-current mr-1.5" />
-                          {m.status}
-                        </span>
-                      </td>
-                      <td className="py-5 px-6 text-sm text-muted-foreground">{m.date_added}</td>
-                      <td className="py-5 px-6 text-right">
-                        <div className={`flex items-center justify-end gap-2 transition-opacity ${selectedEmails.includes(m.email) ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}>
-                          <button onClick={() => handleOpenEdit(m)} className="p-2 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded-lg transition-colors"><Edit className="h-4 w-4" /></button>
-                          <button onClick={() => setDeleteTarget(m)} className="p-2 text-muted-foreground hover:text-destructive hover:bg-destructive/10 rounded-lg transition-colors"><Trash2 className="h-4 w-4" /></button>
-                        </div>
-                      </td>
-                    </motion.tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        <div className="p-6 border-t border-border flex items-center justify-between text-sm text-muted-foreground bg-muted/10">
-          <div className="flex items-center gap-4">
-            <span>Showing {paginatedMembers.length} of {filtered.length} members</span>
-            {selectedEmails.length > 0 && <span className="text-primary font-medium border-l border-border pl-4">{selectedEmails.length} selected</span>}
-          </div>
-          <div className="flex gap-1">
-            <button onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1} className="px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Previous</button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1).map(page => (
-              <button key={page} onClick={() => { setCurrentPage(page); setSelectedEmails([]); }} className={`px-3 py-1.5 rounded-lg transition-colors ${currentPage === page ? "bg-primary text-primary-foreground shadow-sm" : "border border-border hover:bg-muted"}`}>{page}</button>
-            ))}
-            <button onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages} className="px-3 py-1.5 rounded-lg border border-border hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors">Next</button>
-          </div>
-        </div>
-      </motion.div>
-
-      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="mt-8 bg-card rounded-2xl border border-border shadow-card p-6">
-        <div className="mb-6 flex items-center justify-between gap-4">
-          <div>
-            <h2 className="text-lg font-bold text-foreground">Pending Invitations</h2>
-            <p className="text-sm text-muted-foreground">Manage pending invites sent to your workspace.</p>
-          </div>
-        </div>
-
-        {pendingInvites.length === 0 ? (
-          <div className="rounded-2xl border border-border p-8 text-center text-sm text-muted-foreground">
-            No pending invitations.
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {pendingInvites.map((invite) => (
-              <div key={invite.id} className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-border p-4">
-                <div>
-                  <p className="font-semibold text-foreground">{invite.email}</p>
-                  <p className="text-sm text-muted-foreground">Pending · {invite.date_added}</p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <button onClick={() => handleResendInvite(invite.id, invite.email)} disabled={isLoading} className="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-primary hover:bg-primary/10 transition">
-                    Resend
-                  </button>
-                  <button onClick={() => { setDeleteTarget(invite); }} className="rounded-xl border border-border px-4 py-2 text-sm font-semibold text-destructive hover:bg-destructive/10 transition">
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </motion.div>
-
-      {/* Delete Modal */}
-      <DeleteConfirmModal
-        open={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
-        title={deleteTarget?.is_invite ? "Cancel Invitation?" : "Remove Member?"}
-        itemName={deleteTarget?.email}
-        description={deleteTarget?.is_invite ? "This email will no longer be able to join your workspace." : "This user will lose access to all projects immediately."}
+    <div className="space-y-6 px-4 pb-12 pt-6 sm:px-6 lg:px-8 lg:pt-7">
+      <PageHeader
+        title="Team Management"
+        description={<span className="hidden sm:inline">Manage your team access, roles, and permissions.</span>}
+        actions={
+          <>
+            <Button variant="secondary" className="hidden sm:inline-flex" onClick={handleExport} disabled={showSkeleton}>
+              <Download strokeWidth={1.75} /> Export
+            </Button>
+            {canManage && (
+              <Button className="w-full sm:w-auto" size="default" onClick={() => setDialog({ mode: "invite" })}>
+                <Mail strokeWidth={1.75} /> Invite Colleague
+              </Button>
+            )}
+          </>
+        }
       />
 
-      {/* Invite Member Modal */}
-      <AnimatePresence>
-        {isModalOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsModalOpen(false)} className="absolute inset-0 bg-background/80 backdrop-blur-sm" />
-            <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative bg-card w-full max-w-md rounded-2xl border border-border shadow-2xl overflow-hidden z-10">
-              <div className="p-6 border-b border-border flex justify-between items-center bg-muted/30">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                    <Mail className="w-5 h-5" />
-                  </div>
-                  <h2 className="text-xl font-bold text-foreground">{editTargetId ? "Edit Member Access" : "Invite Colleague"}</h2>
-                </div>
-                <button onClick={() => setIsModalOpen(false)} className="p-1 text-muted-foreground hover:text-foreground"><X className="w-5 h-5" /></button>
-              </div>
-              
-              <div className="p-6 space-y-4">
-                {!editTargetId && (
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Send an invitation. When they sign up with this email, they will automatically join your company workspace.
-                  </p>
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">Email Address</label>
-                  <input type="email" value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} disabled={!!editTargetId} placeholder="colleague@company.com" className="w-full bg-muted/50 border border-border focus:border-primary focus:ring-1 focus:ring-primary rounded-xl px-4 py-2.5 text-sm outline-none transition-all text-foreground disabled:opacity-50 disabled:cursor-not-allowed" />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-foreground mb-1.5">Assign Role</label>
-                  <select value={formData.role} onChange={(e) => setFormData({...formData, role: e.target.value})} className="w-full bg-muted/50 border border-border focus:border-primary rounded-xl px-4 py-2.5 text-sm outline-none text-foreground appearance-none">
-                    <option value="Admin">Admin</option>
-                    <option value="Editor">Editor</option>
-                    <option value="Viewer">Viewer</option>
-                  </select>
-                </div>
-                
-                <div className="pt-4 flex justify-end gap-3 border-t border-border mt-6">
-                  <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">Cancel</button>
-                  <button onClick={handleSaveMember} disabled={isSaving} className="px-5 py-2.5 bg-primary text-primary-foreground text-sm font-medium rounded-xl flex items-center gap-2 hover:opacity-90 transition-opacity disabled:opacity-50">
-                    {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : (editTargetId ? <Save className="w-4 h-4" /> : <Mail className="w-4 h-4" />)}
-                    {editTargetId ? "Save Changes" : "Send Invite"}
-                  </button>
-                </div>
-              </div>
-            </motion.div>
+      <motion.section
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.22 }}
+        aria-label="Members"
+        className="overflow-hidden rounded-xl border-border sm:border sm:bg-card sm:shadow-xs"
+      >
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center gap-2.5 pb-3 sm:p-4">
+          <div className="relative w-full sm:w-[340px]">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle" strokeWidth={1.75} />
+            <Input
+              value={searchQuery}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setPage(1);
+                resetSelection();
+              }}
+              placeholder="Search by name, email, or role…"
+              aria-label="Search members"
+              className="h-9 pl-9 md:text-small"
+            />
           </div>
+          <Select value={roleFilter} onValueChange={(value) => { setRoleFilter(value); setPage(1); resetSelection(); }}>
+            <SelectTrigger className="hidden w-auto min-w-[110px] sm:flex" aria-label="Role filter"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_ROLES}>All Roles</SelectItem>
+              <SelectItem value="Admin">Admin</SelectItem>
+              <SelectItem value="Editor">Editor</SelectItem>
+              <SelectItem value="Viewer">Viewer</SelectItem>
+            </SelectContent>
+          </Select>
+          {selectedIds.length > 0 && (
+            <div className="ml-auto flex items-center gap-2">
+              <Badge>{selectedIds.length} selected</Badge>
+              <Button
+                size="sm"
+                className="bg-destructive-soft text-destructive shadow-none hover:bg-destructive/15"
+                onClick={() => setRemoveTarget({ kind: "members", members: selectedMembers })}
+              >
+                <Trash2 strokeWidth={1.75} /> Remove
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {showSkeleton ? (
+          <div className="space-y-3 p-4">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-12 w-full" />)}</div>
+        ) : filtered.length === 0 ? (
+          <EmptyState
+            icon={Users}
+            title={members.length === 0 ? "No team members yet" : "No members match"}
+            description={members.length === 0 ? "Invite a colleague to start working together." : "Try a different name, email or role."}
+            action={members.length > 0 && (
+              <Button variant="secondary" size="sm" onClick={() => { setSearchQuery(""); setRoleFilter(ALL_ROLES); }}>Clear filters</Button>
+            )}
+            className="border-t border-border py-12"
+          />
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className="hidden overflow-x-auto md:block">
+              <table className="w-full text-left text-small">
+                <thead className="border-y border-border bg-surface-2 text-caption font-semibold uppercase tracking-[0.04em] text-muted-foreground">
+                  <tr>
+                    <th scope="col" className="w-12 py-3 pl-4">
+                      {canManage && (
+                        <Checkbox
+                          aria-label="Select all on this page"
+                          checked={allSelected ? true : someSelected ? "indeterminate" : false}
+                          disabled={selectable.length === 0}
+                          onCheckedChange={(checked) =>
+                            setSelectedIds(checked ? [...new Set([...selectedIds, ...selectable.map((m) => m.id)])] : selectedIds.filter((id) => !selectable.some((m) => m.id === id)))
+                          }
+                        />
+                      )}
+                    </th>
+                    <th scope="col" className="py-3 pr-4">User</th>
+                    <th scope="col" className="py-3 pr-4">Role</th>
+                    <th scope="col" className="py-3 pr-4">Status</th>
+                    <th scope="col" className="py-3 pr-4">Date joined</th>
+                    {canManage && <th scope="col" className="py-3 pr-4 text-right">Actions</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pageMembers.map((member) => {
+                    const selected = selectedIds.includes(member.id);
+                    return (
+                      <tr key={member.id} className={cn("border-b border-border last:border-b-0 transition-colors", selected ? "bg-primary-soft/60" : "hover:bg-surface-2/50")}>
+                        <td className="py-3 pl-4">
+                          {canManage && (
+                            <Checkbox
+                              aria-label={`Select ${member.name}`}
+                              checked={selected}
+                              disabled={!canChange(member)}
+                              onCheckedChange={(checked) => setSelectedIds(checked ? [...selectedIds, member.id] : selectedIds.filter((id) => id !== member.id))}
+                            />
+                          )}
+                        </td>
+                        <td className="py-3 pr-4">
+                          <div className="flex items-center gap-3">
+                            <PersonAvatar name={member.name} id={member.userId} size={34} />
+                            <div className="min-w-0">
+                              <p className="truncate font-semibold text-foreground">
+                                {member.name}
+                                {member.userId === user?.id && <span className="ml-1.5 font-normal text-subtle">(you)</span>}
+                              </p>
+                              <p className="truncate text-caption font-normal text-muted-foreground">{member.email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="py-3 pr-4"><RoleBadge role={member.role} owner={member.isOwner} /></td>
+                        <td className="py-3 pr-4">
+                          <span className="flex items-center gap-2 text-foreground"><span className="h-1.5 w-1.5 rounded-full bg-success" />Active</span>
+                        </td>
+                        <td className="py-3 pr-4 text-foreground tabular">{formatDate(member.joinedAt)}</td>
+                        {canManage && (
+                          <td className="py-3 pr-4">
+                            {canChange(member) && (
+                              <div className="flex justify-end gap-1">
+                                <Button variant="ghost" size="icon-sm" aria-label={`Edit ${member.name}'s access`} onClick={() => setDialog({ mode: "edit", member })}>
+                                  <Pencil strokeWidth={1.75} />
+                                </Button>
+                                <Button variant="ghost" size="icon-sm" aria-label={`Remove ${member.name}`} onClick={() => setRemoveTarget({ kind: "members", members: [member] })}>
+                                  <Trash2 strokeWidth={1.75} />
+                                </Button>
+                              </div>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile cards */}
+            <ul className="space-y-3 md:hidden">
+              {pageMembers.map((member) => (
+                <li key={member.id} className="rounded-xl border border-border bg-card p-4 shadow-xs">
+                  <div className="flex items-center gap-3">
+                    <PersonAvatar name={member.name} id={member.userId} size={40} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-label text-foreground">{member.name}</p>
+                      <p className="truncate text-small text-muted-foreground">{member.email}</p>
+                    </div>
+                    {canChange(member) && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${member.name}`}><Ellipsis strokeWidth={1.75} /></Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-44">
+                          <DropdownMenuItem onSelect={() => setDialog({ mode: "edit", member })}><Pencil strokeWidth={1.75} /> Edit access</DropdownMenuItem>
+                          <DropdownMenuItem onSelect={() => setRemoveTarget({ kind: "members", members: [member] })} className="text-destructive focus:text-destructive [&_svg]:text-destructive">
+                            <Trash2 strokeWidth={1.75} /> Remove
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    )}
+                  </div>
+                  <div className="mt-3 flex items-center gap-2">
+                    <RoleBadge role={member.role} owner={member.isOwner} />
+                    <Badge variant="success"><span className="h-1.5 w-1.5 rounded-full bg-success" /> Active</Badge>
+                    <span className="ml-auto text-caption font-normal text-muted-foreground tabular">{formatDate(member.joinedAt)}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+
+            {/* Pagination */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-4 sm:border-t sm:border-border sm:p-4">
+              <p className="text-small text-muted-foreground">
+                Showing {pageMembers.length} of {filtered.length} {filtered.length === 1 ? "member" : "members"}
+              </p>
+              {totalPages > 1 && (
+                <nav aria-label="Pagination" className="flex items-center gap-1">
+                  <Button variant="secondary" size="sm" disabled={currentPage === 1} onClick={() => { setPage(currentPage - 1); resetSelection(); }}>
+                    <ChevronLeft /> Previous
+                  </Button>
+                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((n) => (
+                    <Button
+                      key={n}
+                      variant={n === currentPage ? "default" : "ghost"}
+                      size="icon-sm"
+                      aria-current={n === currentPage ? "page" : undefined}
+                      onClick={() => { setPage(n); resetSelection(); }}
+                    >
+                      {n}
+                    </Button>
+                  ))}
+                  <Button variant="secondary" size="sm" disabled={currentPage === totalPages} onClick={() => { setPage(currentPage + 1); resetSelection(); }}>
+                    Next <ChevronRight />
+                  </Button>
+                </nav>
+              )}
+            </div>
+          </>
         )}
-      </AnimatePresence>
+      </motion.section>
+
+      {/* Pending invitations */}
+      {!showSkeleton && (canManage || invites.length > 0) && (
+        <section aria-label="Pending invitations" className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
+          <header className="p-5 pb-4">
+            <h2 className="text-card-title text-foreground">Pending Invitations</h2>
+            <p className="text-small text-muted-foreground">People who were invited but haven't joined yet.</p>
+          </header>
+          {invites.length === 0 ? (
+            <EmptyState
+              icon={Mail}
+              title="No pending invitations"
+              description="Invites you send will show here until they're accepted."
+              action={canManage && <Button variant="secondary" size="sm" onClick={() => setDialog({ mode: "invite" })}>Invite Colleague</Button>}
+              className="border-t border-border py-8"
+            />
+          ) : (
+            <ul className="divide-y divide-border border-t border-border">
+              {invites.map((invite) => (
+                <li key={invite.id} className="flex flex-wrap items-center gap-3 px-5 py-3.5">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-warning-soft text-warning">
+                    <Mail className="h-4 w-4" strokeWidth={1.75} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-label text-foreground">{invite.email}</p>
+                    <p className="text-caption font-normal text-muted-foreground">Pending · {invite.role} · {formatDate(invite.createdAt)}</p>
+                  </div>
+                  {canManage && (
+                    <div className="flex gap-1">
+                      <Button variant="secondary" size="sm" onClick={() => void copySignupLink(invite)}>
+                        <Link2 strokeWidth={1.75} /> Copy sign-up link
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => setRemoveTarget({ kind: "invite", invite })}>Cancel</Button>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
+
+      <MemberAccessDialog
+        open={dialog !== null}
+        mode={dialog?.mode ?? "invite"}
+        workspaceName={workspace?.name}
+        initialEmail={dialog?.mode === "edit" ? dialog.member.email : ""}
+        initialRole={dialog?.mode === "edit" ? dialog.member.role : "Editor"}
+        saving={isSaving}
+        onClose={() => setDialog(null)}
+        onSubmit={(email, role) => {
+          if (dialog?.mode === "edit") void handleEditRole(dialog.member, role);
+          else void handleInvite(email, role);
+        }}
+      />
+
+      <DeleteConfirmModal
+        open={removeTarget !== null}
+        onClose={() => setRemoveTarget(null)}
+        onConfirm={() => removeTarget && void handleRemove(removeTarget)}
+        title={removeTitle}
+        confirmLabel={removeTarget?.kind === "invite" ? "Cancel invite" : "Remove"}
+        itemName={
+          removeTarget?.kind === "invite"
+            ? removeTarget.invite.email
+            : removeTarget?.members.length === 1 ? removeTarget.members[0].name : removeTarget?.members.map((m) => m.name).join(", ")
+        }
+        description={removeTarget?.kind === "invite" ? "This email will no longer be able to join with that invitation." : "They'll lose access to all projects immediately."}
+      />
     </div>
   );
 }

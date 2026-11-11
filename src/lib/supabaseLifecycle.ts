@@ -32,6 +32,10 @@ export const safeRemoveChannel = (channel: RealtimeChannel | null | undefined) =
 };
 
 export const refreshAuthSessionSafely = async () => {
+  // Signed-out visitors have nothing to refresh; skip the request (and its "session missing" error).
+  const current = await withSupabaseTimeout(supabase.auth.getSession(), "auth.getSession", 8000);
+  if (!current.data.session) return current;
+
   try {
     const { data, error } = await withSupabaseTimeout(
       supabase.auth.refreshSession(),

@@ -26,104 +26,6 @@ export function clearCompanyCache() {
   cachedUserId = null;
 }
 
-
-async function acceptPendingInvitation(user: User): Promise<CompanyContext | null> {
-  const { data: authSession } = await supabase.auth.getSession();
-  const actualAuthUserId = authSession?.session?.user?.id;
-  console.log("=== ACCEPT PENDING INVITATION START ===");
-  console.log("PARAM USER ID", user.id);
-  console.log("ACTUAL AUTH USER ID", actualAuthUserId);
-  console.log("IDS MATCH", user.id === actualAuthUserId);
-
-  const email = user.email?.toLowerCase();
-  if (!email) return null;
-
-  const { data: invitation, error: invitationError } = await withSupabaseTimeout(
-    supabase
-      .from("invitations")
-      .select("id, company_id, status")
-      .eq("email", email)
-      .eq("status", "pending")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
-    "company pending invitation"
-  );
-
-  if (invitationError) throw invitationError;
-  if (!invitation?.company_id) return null;
-
-  const role = "member";
-  const payload = { company_id: invitation.company_id, user_id: user.id, role, status: "active" };
-  console.log("COMPANY CONTEXT FLOW START: acceptPendingInvitation");
-  console.log("LOOKUP USER ID", user.id);
-  console.log("LOOKUP COMPANY ID", invitation.company_id);
-  console.log("ATTEMPTING COMPANY MEMBER UPSERT", payload);
-
-  const { data: existingMember, error: existingMemberError } = await withSupabaseTimeout(
-    supabase
-      .from("company_members")
-      .select("id")
-      .eq("company_id", invitation.company_id)
-      .eq("user_id", user.id)
-      .maybeSingle(),
-    "company existing member"
-  );
-
-  console.log("EXISTING MEMBER QUERY RESULT", existingMember);
-  console.log("EXISTING MEMBER QUERY ERROR", existingMemberError);
-
-  if (existingMemberError) {
-    console.error("MEMBERSHIP LOOKUP FAILED (RLS?)", existingMemberError);
-    console.warn("Skipping membership write due to RLS error. Invitation data exists but membership lookup blocked.");
-    return {
-      userId: user.id,
-      companyId: invitation.company_id,
-      role,
-    };
-  }
-
-  const memberWrite = existingMember
-    ? supabase
-        .from("company_members")
-        .update({ role, status: "active" })
-        .eq("id", existingMember.id)
-    : supabase
-        .from("company_members")
-        .upsert([payload], { onConflict: "user_id,company_id" });
-
-  const { error: memberError } = await withSupabaseTimeout(memberWrite, "company member write");
-  if (memberError) throw memberError;
-
-  await Promise.allSettled([
-    withSupabaseTimeout(
-      supabase
-        .from("invitations")
-        .update({ status: "accepted" })
-        .eq("id", invitation.id),
-      "company invitation accept"
-    ),
-    withSupabaseTimeout(
-      supabase
-        .from("user_profiles")
-        .update({ company_id: invitation.company_id, role, updated_at: new Date().toISOString() })
-        .eq("id", user.id),
-      "company profile update"
-    ),
-  ]).then((results) => {
-    const firstError = results.find((result) =>
-      result.status === "rejected" || result.value.error
-    );
-    if (firstError) throw firstError;
-  });
-
-  return {
-    userId: user.id,
-    companyId: invitation.company_id,
-    role,
-  };
-}
-
 async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
   const { data: authSession } = await supabase.auth.getSession();
   const actualAuthUserId = authSession?.session?.user?.id;
@@ -173,8 +75,8 @@ async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
     };
   }
 
-  const acceptedInvite = await acceptPendingInvitation(user);
-  if (acceptedInvite) return acceptedInvite;
+  // Pending invitations are NOT accepted here: the user accepts or declines them
+  // from the invitation popover in the navbar.
 
   const { data: profile, error: profileError } = await withSupabaseTimeout(
     supabase
@@ -188,8 +90,8 @@ async function loadCurrentCompany(user: User): Promise<CompanyContext | null> {
   if (profileError) throw profileError;
   if (!profile?.company_id) return null;
 
-  // Profil masih menunjuk sebuah company, tapi tidak ada membership aktif dan
-  // tidak ada undangan pending. company_members adalah satu-satunya sumber
+  // Profil masih menunjuk sebuah company, tapi tidak ada membership aktif.
+  // company_members adalah satu-satunya sumber
   // kebenaran akses — kondisi ini berarti user sudah dikeluarkan dari workspace
   // (di-kick). Jangan membuat ulang membership dari data profil yang basi;
   // bersihkan referensi company di profil agar user diarahkan memilih plan sendiri.

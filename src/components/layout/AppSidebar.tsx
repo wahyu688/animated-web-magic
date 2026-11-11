@@ -11,8 +11,7 @@ import {
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import type { WorkspaceSummary } from "@/hooks/use-workspace-summary";
 import { cn } from "@/lib/utils";
-
-const TRIAL_LENGTH_DAYS = 14;
+import { TRIAL_LENGTH_DAYS, isTrialStatus } from "@/lib/plans";
 
 interface AppSidebarProps {
   collapsed?: boolean;
@@ -42,7 +41,7 @@ function formatPlan(plan: string | null) {
 
 function getTrial(workspace: WorkspaceSummary | null) {
   if (!workspace?.expiresAt) return null;
-  if (!["trial", "trialing"].includes(workspace.status ?? "")) return null;
+  if (!isTrialStatus(workspace.status)) return null;
 
   const expiresAt = new Date(workspace.expiresAt);
   const msLeft = expiresAt.getTime() - Date.now();
@@ -230,6 +229,13 @@ export default function AppSidebar({
             <p className="text-caption text-muted-foreground">
               Your {formatPlan(workspace?.plan ?? null).replace(" plan", "")} trial is active until {trial.endsOn}.
             </p>
+            <Link
+              to="/pricing"
+              onClick={onNavigate}
+              className="inline-flex text-label text-primary-text underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm"
+            >
+              Choose a plan
+            </Link>
           </div>
         )}
 
@@ -249,7 +255,7 @@ export default function AppSidebar({
                 collapsed ? "mt-1 p-1" : "w-full px-1.5 pb-1 pt-2"
               )}
             >
-              <UserAvatar initials={profile.initials} size={34} online />
+              <UserAvatar initials={profile.initials} imageUrl={profile.avatarUrl} size={34} online />
               {!collapsed && (
                 <>
                   <span className="min-w-0 flex-1">

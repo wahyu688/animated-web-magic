@@ -1,797 +1,775 @@
-import { useState, useRef, useEffect, type ReactNode } from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { User, Lock, Bell, CreditCard, Puzzle, Camera, Shield, Smartphone, Key, Mail, Monitor, Globe, Slack, Github, Webhook, ChevronRight, Loader2, Users, Trash2 } from "lucide-react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { motion } from "framer-motion";
+import {
+  ArrowRight, Bell, Check, CreditCard, Globe, LayoutGrid, Lock, Monitor, ShieldCheck, TriangleAlert, Upload, User, Users, Zap, type LucideIcon,
+} from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "../lib/supabase";
 import { logActivity } from "../lib/activityLogger";
-import type { Session } from "@supabase/supabase-js";
 import { useAuth } from "@/contexts/AuthContext";
 import { useCompany } from "@/hooks/use-company";
+import { announceProfileUpdated } from "@/lib/profile-events";
+import { findPlan, isPlanActive, isTrialExpired, isTrialStatus } from "@/lib/plans";
+import { LEGACY_BUSINESS_TYPE, getBusinessConfig, isBusinessType, type BusinessType } from "@/lib/business";
+import { getCurrency, type CurrencyCode } from "@/lib/currency";
+import { announceBusinessProfileChanged } from "@/hooks/use-business-profile";
+import { BusinessTypePicker, CurrencySelect } from "@/components/workspace/BusinessFields";
+import PageHeader from "@/components/app/PageHeader";
+import UserAvatar from "@/components/layout/UserAvatar";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
+import { cn } from "@/lib/utils";
 
-const tabs = [
-  { icon: User, label: "General" },
-  { icon: Lock, label: "Security" },
-  { icon: Bell, label: "Notifications" },
-  { icon: CreditCard, label: "Billing" },
-  { icon: Puzzle, label: "Integrations" },
-  { icon: Monitor, label: "Workspace" },
-  { icon: Users, label: "Team" },
+const TABS: { id: string; label: string; icon: LucideIcon }[] = [
+  { id: "general", label: "General", icon: User },
+  { id: "security", label: "Security", icon: Lock },
+  { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "billing", label: "Billing", icon: CreditCard },
+  { id: "integrations", label: "Integrations", icon: LayoutGrid },
+  { id: "workspace", label: "Workspace", icon: Monitor },
+  { id: "team", label: "Team", icon: Users },
 ];
 
-/* ── Shared Footer ── */
-function SettingsFooter({ onSave, isLoading }: { onSave: () => void, isLoading?: boolean }) {
+const TIMEZONES = [
+  "(GMT-8) America/Los_Angeles",
+  "(GMT-5) America/New_York",
+  "(GMT+0) Europe/London",
+  "(GMT+1) Europe/Berlin",
+  "(GMT+7) Asia/Jakarta",
+  "(GMT+8) Asia/Singapore",
+  "(GMT+8) Asia/Makassar",
+  "(GMT+9) Asia/Jayapura",
+  "(GMT+9) Asia/Tokyo",
+  "(GMT+10) Australia/Sydney",
+];
+
+const MAX_AVATAR_BYTES = 1024 * 1024;
+
+/* ── Shared layout ── */
+
+function SettingsCard({ children, footer }: { children: ReactNode; footer?: ReactNode }) {
   return (
-    <div className="flex items-center justify-end gap-3 pt-6 border-t border-border">
-      <button className="px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-muted rounded-xl transition-colors">Cancel</button>
-      <motion.button 
-        onClick={onSave}
-        disabled={isLoading}
-        whileHover={{ scale: 1.02 }} 
-        whileTap={{ scale: 0.98 }} 
-        className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-xl shadow-primary-glow hover:opacity-90 transition-opacity disabled:opacity-50"
-      >
-        {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
-        Save Changes
-      </motion.button>
-    </div>
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22 }}
+      className="overflow-hidden rounded-xl border border-border bg-card shadow-xs"
+    >
+      <div className="divide-y divide-border">{children}</div>
+      {footer && <div className="flex items-center justify-end gap-2 border-t border-border bg-surface-2 px-6 py-4">{footer}</div>}
+    </motion.div>
   );
 }
 
-/* ── General Tab (TERSAMBUNG SUPABASE) ── */
-function GeneralTab({ session }: { session: Session | null }) {
-  const { toast } = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [profile, setProfile] = useState({
-    first_name: "",
-    last_name: "",
-    bio: "",
-    timezone: "Western Indonesia Time (WIB)",
-    avatar_url: "",
-  });
+function SettingsSection({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  return (
+    <section className="grid gap-5 px-6 py-6 sm:px-7 lg:grid-cols-[240px_minmax(0,1fr)] lg:gap-8">
+      <div>
+        <h2 className="text-[15px] font-semibold leading-[22px] text-foreground">{title}</h2>
+        {description && <p className="mt-1 text-small text-muted-foreground">{description}</p>}
+      </div>
+      <div className="min-w-0">{children}</div>
+    </section>
+  );
+}
 
-  // Fetch data profil saat tab dibuka
+function FooterButtons({ dirty, canSave = true, saving, onCancel, onSave, label = "Save changes" }: {
+  dirty: boolean;
+  /** Extra condition for the save button, e.g. form validity. */
+  canSave?: boolean;
+  saving: boolean;
+  onCancel: () => void;
+  onSave: () => void;
+  label?: string;
+}) {
+  return (
+    <>
+      <Button variant="ghost" onClick={onCancel} disabled={!dirty || saving}>Cancel</Button>
+      <Button onClick={onSave} disabled={!dirty || !canSave} loading={saving}>
+        {!saving && <Check />} {label}
+      </Button>
+    </>
+  );
+}
+
+/* ── General ── */
+
+interface ProfileForm {
+  first_name: string;
+  last_name: string;
+  bio: string;
+  timezone: string;
+}
+
+function GeneralTab() {
+  const { toast } = useToast();
+  const { session } = useAuth();
+  const userId = session?.user?.id;
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [saved, setSaved] = useState<ProfileForm | null>(null);
+  const [form, setForm] = useState<ProfileForm>({ first_name: "", last_name: "", bio: "", timezone: TIMEZONES[4] });
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
   useEffect(() => {
-    const fetchProfile = async () => {
-      if (!session?.user?.id) return;
-      try {
-        const { data, error } = await supabase.from("user_profiles").select('*').eq('id', session.user.id).single();
-        if (error) throw error;
-        if (data) {
-          setProfile({
-            first_name: data.first_name || "",
-            last_name: data.last_name || "",
-            bio: data.bio || "",
-            timezone: data.timezone || "Western Indonesia Time (WIB)",
-            avatar_url: data.avatar_url || "",
-          });
-        }
-      } catch (err) {
-        console.error('Failed to load profile:', err);
-        toast({ title: 'Profile load failed', description: 'Unable to load your profile settings.', variant: 'destructive' });
+    if (!userId) return;
+    supabase.from("user_profiles").select("first_name, last_name, bio, timezone, avatar_url").eq("id", userId).maybeSingle().then(({ data, error }) => {
+      if (error) {
+        toast({ title: "Couldn't load your profile", description: "Refresh the page and try again.", variant: "destructive" });
+        return;
       }
-    };
-    fetchProfile();
-  }, [session]);
+      const loaded = {
+        first_name: data?.first_name ?? "",
+        last_name: data?.last_name ?? "",
+        bio: data?.bio ?? "",
+        timezone: data?.timezone || TIMEZONES[4],
+      };
+      setSaved(loaded);
+      setForm(loaded);
+      setAvatarUrl(data?.avatar_url ?? null);
+    });
+  }, [userId, toast]);
+
+  const dirty = saved !== null && JSON.stringify(saved) !== JSON.stringify(form);
 
   const handleSave = async () => {
-    if (!session?.user?.id) return;
-    setIsLoading(true);
+    if (!userId) return;
+    setIsSaving(true);
+    const { error } = await supabase
+      .from("user_profiles")
+      .update({ ...form, first_name: form.first_name.trim(), last_name: form.last_name.trim(), updated_at: new Date().toISOString() })
+      .eq("id", userId);
+    setIsSaving(false);
 
-    try {
-      const updates = {
-        first_name: profile.first_name,
-        last_name: profile.last_name,
-        bio: profile.bio,
-        timezone: profile.timezone,
-        updated_at: new Date(),
-      };
-
-      const { error } = await supabase.from("user_profiles").update(updates).eq('id', session.user.id);
-
-      if (error) throw error;
-
-      toast({ title: "Profile updated", description: "Your general profile settings have been saved successfully." });
-      await logActivity({
-        user: "You",
-        action: "updated your",
-        target: "Profile Details",
-        type: "success",
-        iconName: "CheckCircle",
-        iconBg: "bg-success/10 text-success"
-      });
-    } catch (error: any) {
-      console.error('Failed to save profile:', error);
-      toast({ title: "Error", description: error?.message ?? 'Failed to save profile.', variant: "destructive" });
-    } finally {
-      setIsLoading(false);
+    if (error) {
+      toast({ title: "Couldn't save your profile", description: error.message, variant: "destructive" });
+      return;
     }
+    setSaved(form);
+    announceProfileUpdated();
+    toast({ title: "Profile updated", description: "Your teammates will see the new details." });
+    await logActivity({ user: "You", action: "updated", target: "their profile", type: "success", iconName: "CheckCircle", iconBg: "bg-success/10 text-success" });
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!session?.user?.id) return;
-    const file = e.target.files && e.target.files[0];
-    if (!file) return;
-    setIsLoading(true);
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!userId || !file) return;
+    if (!/^image\/(jpeg|png|gif)$/.test(file.type)) {
+      toast({ title: "Unsupported file", description: "Use a JPG, GIF or PNG image.", variant: "destructive" });
+      return;
+    }
+    if (file.size > MAX_AVATAR_BYTES) {
+      toast({ title: "File is too large", description: "Profile photos can be up to 1MB.", variant: "destructive" });
+      return;
+    }
+
+    setIsUploading(true);
     try {
-      const filePath = `avatars/${session.user.id}/${Date.now()}_${file.name}`;
-      const { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, file, { upsert: true });
+      const filePath = `avatars/${userId}/${Date.now()}_${file.name}`;
+      const { error: uploadError } = await supabase.storage.from("avatars").upload(filePath, file, { upsert: true });
       if (uploadError) throw uploadError;
-      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(filePath);
-      const publicUrl = urlData.publicUrl;
-      const { error: updateError } = await supabase.from('user_profiles').update({ avatar_url: publicUrl }).eq('id', session.user.id);
+      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(filePath);
+      const { error: updateError } = await supabase.from("user_profiles").update({ avatar_url: urlData.publicUrl }).eq("id", userId);
       if (updateError) throw updateError;
-      setProfile((p) => ({ ...p, avatar_url: publicUrl }));
-      toast({ title: 'Photo uploaded', description: 'Profile photo updated.' });
+      setAvatarUrl(urlData.publicUrl);
+      announceProfileUpdated();
+      toast({ title: "Photo updated" });
     } catch (err) {
-      console.error('Avatar upload failed:', err);
-      toast({ title: 'Upload failed', description: 'Unable to upload avatar.', variant: 'destructive' });
+      console.error("Avatar upload failed:", err);
+      toast({ title: "Upload failed", description: "Your photo wasn't changed. Try again.", variant: "destructive" });
     } finally {
-      setIsLoading(false);
+      setIsUploading(false);
     }
   };
 
+  const handleRemovePhoto = async () => {
+    if (!userId) return;
+    const { error } = await supabase.from("user_profiles").update({ avatar_url: null }).eq("id", userId);
+    if (error) {
+      toast({ title: "Couldn't remove the photo", description: "Try again.", variant: "destructive" });
+      return;
+    }
+    setAvatarUrl(null);
+    announceProfileUpdated();
+  };
+
+  const initials = `${form.first_name.charAt(0)}${form.last_name.charAt(0)}`.toUpperCase() || (session?.user?.email?.charAt(0).toUpperCase() ?? "?");
+  const timezoneOptions = TIMEZONES.includes(form.timezone) ? TIMEZONES : [form.timezone, ...TIMEZONES];
+
+  if (!saved) return <SettingsCard><div className="space-y-4 p-6"><Skeleton className="h-16 w-full" /><Skeleton className="h-64 w-full" /></div></SettingsCard>;
+
   return (
-    <>
-      <div className="px-6 py-6 border-b border-border">
-        <h2 className="text-xl font-semibold text-foreground">Profile Details</h2>
-        <p className="text-sm text-muted-foreground mt-1">Update your photo and personal details here.</p>
-      </div>
-      <div className="p-6 space-y-8">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
-          <div className="relative group cursor-pointer" onClick={() => fileInputRef.current?.click()}>
-            <div className={`w-20 h-20 rounded-full overflow-hidden ${profile.avatar_url ? "border border-border" : "gradient-primary"}`}>
-              {profile.avatar_url ? (
-                <img src={profile.avatar_url} alt="Avatar" className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-primary-foreground font-bold text-2xl ring-4 ring-muted transition-transform group-hover:scale-105">
-                  {profile.first_name ? profile.first_name[0] : session?.user?.email?.[0].toUpperCase() || "U"}
-                </div>
-              )}
-            </div>
-            <div className="absolute inset-0 flex items-center justify-center bg-foreground/40 rounded-full opacity-0 group-hover:opacity-100 transition-all">
-              <Camera className="h-5 w-5 text-primary-foreground" />
-            </div>
-          </div>
-          <div>
-            <h3 className="text-sm font-medium text-foreground">Profile Photo</h3>
-            <p className="text-xs text-muted-foreground mt-1 mb-3">Accepts JPG, GIF or PNG. 1MB Max.</p>
-            <div className="flex gap-3">
-              <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/*" />
-              <button onClick={() => fileInputRef.current?.click()} className="px-3 py-1.5 text-xs font-medium bg-card border border-border rounded-lg shadow-sm hover:bg-muted text-foreground transition-colors">Upload New</button>
-            </div>
-          </div>
+    <SettingsCard footer={<FooterButtons dirty={dirty} saving={isSaving} onCancel={() => setForm(saved)} onSave={handleSave} />}>
+      <SettingsSection title="Profile photo" description="Accepts JPG, GIF or PNG. 1MB max.">
+        <div className="flex flex-wrap items-center gap-4">
+          <UserAvatar initials={initials} imageUrl={avatarUrl} size={64} className="text-[22px]" />
+          <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept="image/jpeg,image/png,image/gif" />
+          <Button variant="secondary" onClick={() => fileInputRef.current?.click()} loading={isUploading}>
+            {!isUploading && <Upload strokeWidth={1.75} />} Upload New
+          </Button>
+          {avatarUrl && <Button variant="ghost" onClick={handleRemovePhoto}>Remove</Button>}
         </div>
-        <hr className="border-border" />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      </SettingsSection>
+
+      <SettingsSection title="Personal info" description="This is how teammates see you in NexusFlow.">
+        <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">First Name</label>
-            <input type="text" value={profile.first_name} onChange={(e) => setProfile({...profile, first_name: e.target.value})} className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary focus:ring-primary/20 text-sm py-2.5 px-3 transition-colors" />
+            <Label htmlFor="first-name">First Name</Label>
+            <Input id="first-name" autoComplete="given-name" value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} />
           </div>
           <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">Last Name</label>
-            <input type="text" value={profile.last_name} onChange={(e) => setProfile({...profile, last_name: e.target.value})} className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary focus:ring-primary/20 text-sm py-2.5 px-3 transition-colors" />
+            <Label htmlFor="last-name">Last Name</Label>
+            <Input id="last-name" autoComplete="family-name" value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} />
           </div>
-          <div className="space-y-1.5 md:col-span-2">
-            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">Email Address</label>
-            <input type="email" disabled value={session?.user?.email || ""} className="block w-full rounded-xl border border-border bg-muted/50 text-muted-foreground shadow-sm text-sm py-2.5 px-3 cursor-not-allowed" />
-            <p className="text-[10px] text-muted-foreground">Email is managed by authentication provider.</p>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="email">Email Address</Label>
+            <div className="relative">
+              <Input id="email" type="email" disabled value={session?.user?.email ?? ""} className="pr-9" aria-describedby="email-hint" />
+              <Lock className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle" strokeWidth={1.75} />
+            </div>
+            <p id="email-hint" className="text-caption font-normal text-muted-foreground">Email is managed by the authentication provider.</p>
           </div>
-          <div className="space-y-1.5 md:col-span-2">
-            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">Bio</label>
-            <textarea rows={4} value={profile.bio} onChange={(e) => setProfile({...profile, bio: e.target.value})} placeholder="Tell us a little about yourself..." className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary focus:ring-primary/20 text-sm py-2.5 px-3 transition-colors resize-none" />
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="bio">Bio</Label>
+            <textarea
+              id="bio"
+              rows={4}
+              value={form.bio}
+              onChange={(e) => setForm({ ...form, bio: e.target.value })}
+              placeholder="A line or two about what you work on"
+              className="w-full resize-none rounded-lg border border-input bg-card px-3 py-2.5 text-[15px] text-foreground shadow-xs outline-none transition-[border-color,box-shadow] placeholder:text-subtle focus:border-primary focus:ring-[3px] focus:ring-primary/15"
+            />
           </div>
-          <div className="space-y-1.5 md:col-span-2">
-            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">Timezone</label>
-            <select value={profile.timezone} onChange={(e) => setProfile({...profile, timezone: e.target.value})} className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary focus:ring-primary/20 text-sm py-2.5 px-3 transition-colors">
-              <option>Pacific Standard Time (PST)</option>
-              <option>Eastern Standard Time (EST)</option>
-              <option>Greenwich Mean Time (GMT)</option>
-              <option>Western Indonesia Time (WIB)</option>
-            </select>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label htmlFor="timezone">Timezone</Label>
+            <Select value={form.timezone} onValueChange={(value) => setForm({ ...form, timezone: value })}>
+              <SelectTrigger id="timezone" className="h-10 justify-start md:text-[15px] [&>svg:last-child]:ml-auto">
+                <Globe className="h-4 w-4 shrink-0 text-subtle" strokeWidth={1.75} />
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {timezoneOptions.map((tz) => <SelectItem key={tz} value={tz}>{tz}</SelectItem>)}
+              </SelectContent>
+            </Select>
           </div>
         </div>
-        <SettingsFooter onSave={handleSave} isLoading={isLoading} />
-      </div>
-    </>
+      </SettingsSection>
+    </SettingsCard>
   );
 }
 
-/* ── Security Tab (TERSAMBUNG SUPABASE AUTH) ── */
+/* ── Security ── */
+
 function SecurityTab() {
   const { toast } = useToast();
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [passwords, setPasswords] = useState({ new: "", confirm: "" });
+  const [passwords, setPasswords] = useState({ next: "", confirm: "" });
+  const [isSaving, setIsSaving] = useState(false);
 
-  const handleUpdatePassword = async () => {
-    if (!passwords.new || !passwords.confirm) {
-      toast({ title: "Error", description: "Please fill in all password fields.", variant: "destructive" });
-      return;
-    }
-    if (passwords.new.length < 8) {
-      toast({ title: "Error", description: "Password must be at least 8 characters.", variant: "destructive" });
-      return;
-    }
+  const tooShort = passwords.next.length > 0 && passwords.next.length < 8;
+  const mismatch = passwords.confirm.length > 0 && passwords.next !== passwords.confirm;
+  const valid = passwords.next.length >= 8 && passwords.next === passwords.confirm;
 
-    if (passwords.new !== passwords.confirm) {
-      toast({ title: "Error", description: "New passwords do not match.", variant: "destructive" });
-      return;
-    }
-
-    setIsUpdating(true);
-    const { error } = await supabase.auth.updateUser({ password: passwords.new });
-    
+  const handleSave = async () => {
+    if (!valid) return;
+    setIsSaving(true);
+    const { error } = await supabase.auth.updateUser({ password: passwords.next });
+    setIsSaving(false);
     if (error) {
-      toast({ title: "Update Failed", description: error.message, variant: "destructive" });
-    } else {
-      toast({ title: "Password updated", description: "Your password has been changed successfully." });
-      setPasswords({ new: "", confirm: "" });
-
-      // NOTIFIKASI GANTI PASSWORD
-      await logActivity({
-        user: "You",
-        action: "changed your",
-        target: "Account Password",
-        type: "warning",
-        iconName: "AlertTriangle",
-        iconBg: "bg-warning/10 text-warning"
-      });
+      toast({ title: "Couldn't change your password", description: error.message, variant: "destructive" });
+      return;
     }
-    setIsUpdating(false);
+    setPasswords({ next: "", confirm: "" });
+    toast({ title: "Password changed", description: "Use the new password next time you sign in." });
+    await logActivity({ user: "You", action: "changed", target: "their password", type: "warning", iconName: "AlertTriangle", iconBg: "bg-warning/10 text-warning" });
   };
 
   return (
-    <>
-      <div className="px-6 py-6 border-b border-border">
-        <h2 className="text-xl font-semibold text-foreground">Security</h2>
-        <p className="text-sm text-muted-foreground mt-1">Manage your password and account security settings.</p>
-      </div>
-      <div className="p-6 space-y-8">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><Key className="h-4 w-4 text-primary" /> Change Password</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">New Password</label>
-              <input type="password" value={passwords.new} onChange={(e) => setPasswords({...passwords, new: e.target.value})} placeholder="••••••••" className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary text-sm py-2.5 px-3" />
+    <SettingsCard
+      footer={
+        <FooterButtons
+          dirty={passwords.next !== "" || passwords.confirm !== ""}
+          canSave={valid}
+          saving={isSaving}
+          onCancel={() => setPasswords({ next: "", confirm: "" })}
+          onSave={() => void handleSave()}
+          label="Update password"
+        />
+      }
+    >
+      <SettingsSection title="Password" description="Change the password you use to sign in.">
+        <div className="max-w-[520px] space-y-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="new-password">New Password</Label>
+            <div className="relative">
+              <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle" strokeWidth={1.75} />
+              <Input
+                id="new-password"
+                type="password"
+                autoComplete="new-password"
+                value={passwords.next}
+                onChange={(e) => setPasswords({ ...passwords, next: e.target.value })}
+                aria-invalid={tooShort}
+                aria-describedby="new-password-hint"
+                className="pl-9"
+              />
             </div>
-            <div className="space-y-1.5">
-              <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">Confirm Password</label>
-              <input type="password" value={passwords.confirm} onChange={(e) => setPasswords({...passwords, confirm: e.target.value})} placeholder="••••••••" className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary text-sm py-2.5 px-3" />
+            <p id="new-password-hint" className={cn("text-caption font-normal", tooShort ? "text-destructive" : "text-muted-foreground")}>
+              At least 8 characters.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="confirm-password">Confirm Password</Label>
+            <div className="relative">
+              <Lock className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-subtle" strokeWidth={1.75} />
+              <Input
+                id="confirm-password"
+                type="password"
+                autoComplete="new-password"
+                value={passwords.confirm}
+                onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
+                aria-invalid={mismatch}
+                aria-describedby={mismatch ? "confirm-error" : undefined}
+                className="pl-9"
+              />
             </div>
+            {mismatch && <p id="confirm-error" className="text-caption font-normal text-destructive">Passwords don't match.</p>}
           </div>
-          <div className="mt-4">
-            <motion.button onClick={handleUpdatePassword} disabled={isUpdating} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }} className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-xl shadow-primary-glow hover:opacity-90 disabled:opacity-50">
-              {isUpdating ? "Updating..." : "Update Password"}
-            </motion.button>
-          </div>
+          <p className="flex items-center gap-2.5 rounded-[10px] bg-success-soft px-4 py-3 text-small text-foreground">
+            <ShieldCheck className="h-[18px] w-[18px] shrink-0 text-success" strokeWidth={1.75} />
+            Sign-in and passwords are handled by Supabase Authentication.
+          </p>
         </div>
-        <hr className="border-border" />
-        <div className="p-4 rounded-xl bg-muted/50 border border-border flex items-center gap-4">
-           <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center"><Shield className="h-5 w-5" /></div>
-           <div>
-             <p className="text-sm font-medium text-foreground">Account Protection</p>
-             <p className="text-xs text-muted-foreground">Your account is secured by Supabase Authentication layer.</p>
-           </div>
-        </div>
-      </div>
-    </>
+      </SettingsSection>
+    </SettingsCard>
   );
 }
 
-/* ── Notifications Tab (TERSAMBUNG SUPABASE) ── */
-function NotificationsTab({ session }: { session: Session | null }) {
+/* ── Notifications ── */
+
+interface NotificationPrefs {
+  email_notifications: boolean;
+  push_notifications: boolean;
+  marketing_notifications: boolean;
+}
+
+// One switch per user_settings column (the same three the Activity page shows).
+const PREF_ROWS: { key: keyof NotificationPrefs; label: string; description: string }[] = [
+  { key: "email_notifications", label: "Activity & mentions", description: "Mentions, replies and changes to your work." },
+  { key: "push_notifications", label: "Browser notifications", description: "Alerts while NexusFlow is open in your browser." },
+  { key: "marketing_notifications", label: "Product news", description: "Occasional updates about new NexusFlow features." },
+];
+
+function NotificationsTab() {
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
-  const [prefs, setPrefs] = useState({
-    email_mentions: true, email_updates: false, email_digest: true,
-    push_mentions: true, push_tasks: true, push_comments: false,
-  });
+  const { session } = useAuth();
+  const userId = session?.user?.id;
+  const [saved, setSaved] = useState<NotificationPrefs | null>(null);
+  const [prefs, setPrefs] = useState<NotificationPrefs>({ email_notifications: true, push_notifications: true, marketing_notifications: false });
+  const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    const fetchPrefs = async () => {
-      if (!session?.user?.id) return;
-      try {
-        const { data, error } = await supabase.from('user_settings').select('*').eq('user_id', session.user.id).maybeSingle();
-        if (error) throw error;
-        if (data) {
-          setPrefs({
-            email_mentions: data.email_notifications ?? true,
-            email_updates: data.marketing_notifications ?? false,
-            email_digest: data.email_notifications ?? true,
-            push_mentions: data.push_notifications ?? true,
-            push_tasks: data.push_notifications ?? true,
-            push_comments: data.push_notifications ?? false,
-          });
+    if (!userId) return;
+    supabase
+      .from("user_settings")
+      .select("email_notifications, push_notifications, marketing_notifications")
+      .eq("user_id", userId)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (error) {
+          toast({ title: "Couldn't load your preferences", description: "Refresh the page and try again.", variant: "destructive" });
           return;
         }
-
-        const defaultSettings = {
-          user_id: session.user.id,
-          email_notifications: true,
-          push_notifications: true,
-          marketing_notifications: false,
-          created_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+        const loaded = {
+          email_notifications: data?.email_notifications ?? true,
+          push_notifications: data?.push_notifications ?? true,
+          marketing_notifications: data?.marketing_notifications ?? false,
         };
-
-        const { error: createError } = await supabase.from('user_settings').insert(defaultSettings);
-        if (createError) throw createError;
-
-        setPrefs({
-          email_mentions: true,
-          email_updates: false,
-          email_digest: true,
-          push_mentions: true,
-          push_tasks: true,
-          push_comments: false,
-        });
-      } catch (err) {
-        console.error('Failed to load user_settings, falling back to user_profiles:', err);
-        toast({ title: 'Notification settings load failed', description: 'Unable to load saved notification preferences.', variant: 'destructive' });
-        const { data } = await supabase.from("user_profiles").select('*').eq('id', session.user.id).maybeSingle();
-        if (data) {
-          setPrefs({
-            email_mentions: data.email_mentions ?? true,
-            email_updates: data.email_updates ?? false,
-            email_digest: data.email_digest ?? true,
-            push_mentions: data.push_mentions ?? true,
-            push_tasks: data.push_tasks ?? true,
-            push_comments: data.push_comments ?? false,
-          });
-        }
-      }
-    };
-    fetchPrefs();
-  }, [session]);
-
-  const toggle = (key: keyof typeof prefs) => setPrefs((p) => ({ ...p, [key]: !p[key] }));
-
-  const handleSave = async () => {
-    if (!session?.user?.id) return;
-    setIsLoading(true);
-    try {
-      const settings = {
-        user_id: session.user.id,
-        email_notifications: prefs.email_mentions || false,
-        push_notifications: prefs.push_mentions || false,
-        marketing_notifications: prefs.email_updates || false,
-        updated_at: new Date().toISOString(),
-      };
-
-      const { error } = await supabase.from('user_settings').upsert(settings, { onConflict: 'user_id' });
-      if (error) throw error;
-
-      toast({ title: "Preferences saved", description: "Your notification settings have been updated." });
-      await logActivity({
-        user: "You",
-        action: "updated",
-        target: "Notification Preferences",
-        type: "success",
-        iconName: "CheckCircle",
-        iconBg: "bg-success/10 text-success"
+        setSaved(loaded);
+        setPrefs(loaded);
       });
-    } catch (err) {
-      console.error('Failed to save user_settings', err);
-      toast({ title: "Error", description: "Failed to save preferences.", variant: "destructive" });
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  }, [userId, toast]);
 
-  const ToggleBtn = ({ on, onToggle }: { on: boolean; onToggle: () => void }) => (
-    <button onClick={onToggle} className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${on ? "bg-primary" : "bg-border"}`}>
-      <span className={`inline-block h-4 w-4 transform rounded-full bg-primary-foreground transition-transform ${on ? "translate-x-6" : "translate-x-1"}`} />
-    </button>
-  );
-
-  return (
-    <>
-      <div className="px-6 py-6 border-b border-border">
-        <h2 className="text-xl font-semibold text-foreground">Notifications</h2>
-        <p className="text-sm text-muted-foreground mt-1">Choose how you want to be notified.</p>
-      </div>
-      <div className="p-6 space-y-8">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground mb-4 flex items-center gap-2"><Mail className="h-4 w-4 text-primary" /> Email Notifications</h3>
-          <div className="space-y-4">
-            {[
-              { key: "email_mentions" as const, label: "Mentions & Replies", desc: "When someone mentions you" },
-              { key: "email_updates" as const, label: "Project Updates", desc: "Status changes and milestone completions" },
-              { key: "email_digest" as const, label: "Weekly Digest", desc: "A summary of your activity every Monday" },
-            ].map((item) => (
-              <div key={item.key} className="flex items-center justify-between p-4 rounded-xl border border-border hover:bg-muted/50 transition-colors">
-                <div><p className="text-sm font-medium text-foreground">{item.label}</p><p className="text-xs text-muted-foreground">{item.desc}</p></div>
-                <ToggleBtn on={prefs[item.key]} onToggle={() => toggle(item.key)} />
-              </div>
-            ))}
-          </div>
-        </div>
-        <SettingsFooter onSave={handleSave} isLoading={isLoading} />
-      </div>
-    </>
-  );
-}
-
-/* ── Billing & Integrations ── */
-function WorkspaceTab({ companyId, companyRole }: { companyId: string | null; companyRole: string | null }) {
-  const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
-  const [workspaceName, setWorkspaceName] = useState("");
-  const [companyName, setCompanyName] = useState("");
-  const [companyLoaded, setCompanyLoaded] = useState(false);
-
-  useEffect(() => {
-    const loadCompany = async () => {
-      if (!companyId) return;
-      setIsLoading(true);
-      try {
-        const { data, error } = await supabase.from('companies').select('*').eq('id', companyId).single();
-        if (error) throw error;
-        setCompanyName(data.name || "");
-        setWorkspaceName(data.name || "");
-      } catch (err) {
-        console.error('Load workspace failed:', err);
-        toast({ title: 'Error', description: 'Unable to load workspace settings.', variant: 'destructive' });
-      } finally {
-        setCompanyLoaded(true);
-        setIsLoading(false);
-      }
-    };
-
-    void loadCompany();
-  }, [companyId, toast]);
+  const dirty = saved !== null && JSON.stringify(saved) !== JSON.stringify(prefs);
 
   const handleSave = async () => {
-    if (!companyId) return;
-    if (companyRole !== 'owner') {
-      toast({ title: 'Not allowed', description: 'Only owners can edit workspace details.', variant: 'destructive' });
+    if (!userId) return;
+    setIsSaving(true);
+    const { error } = await supabase.from("user_settings").upsert({ user_id: userId, ...prefs, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+    setIsSaving(false);
+    if (error) {
+      toast({ title: "Couldn't save your preferences", description: "Try again.", variant: "destructive" });
       return;
     }
-
-    setIsLoading(true);
-    try {
-      const { error } = await supabase.from('companies').update({ name: workspaceName }).eq('id', companyId);
-      if (error) throw error;
-      setCompanyName(workspaceName);
-      toast({ title: 'Workspace updated', description: 'Workspace name has been saved successfully.' });
-      await logActivity({ user: 'You', action: 'updated your', target: 'Workspace name', type: 'success', iconName: 'CheckCircle', iconBg: 'bg-success/10 text-success' });
-    } catch (err: any) {
-      console.error('Save workspace failed:', err);
-      toast({ title: 'Error', description: err?.message ?? 'Unable to save workspace.', variant: 'destructive' });
-    } finally {
-      setIsLoading(false);
-    }
+    setSaved(prefs);
+    toast({ title: "Preferences saved" });
   };
 
-  const isEditable = companyRole === 'owner';
+  if (!saved) return <SettingsCard><div className="p-6"><Skeleton className="h-40 w-full" /></div></SettingsCard>;
 
   return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h2 className="text-xl font-semibold text-foreground">Workspace Settings</h2>
-        <p className="text-sm text-muted-foreground mt-1">Manage your workspace name and visibility.</p>
-      </div>
-
-      {isLoading && !companyLoaded ? (
-        <div className="rounded-2xl border border-border p-8 text-center text-sm text-muted-foreground">Loading workspace details...</div>
-      ) : (
-        <div className="space-y-6">
-          <div className="space-y-1.5 max-w-xl">
-            <label className="block text-xs font-medium text-muted-foreground uppercase tracking-wide">Workspace Name</label>
-            <input value={workspaceName} onChange={(e) => setWorkspaceName(e.target.value)} disabled={!isEditable} className="block w-full rounded-xl border border-border bg-card text-foreground shadow-sm focus:border-primary focus:ring-primary/20 text-sm py-2.5 px-3 transition-colors" />
-            {!isEditable && <p className="text-xs text-muted-foreground">Only company owners can edit workspace details.</p>}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button onClick={handleSave} disabled={!isEditable || isLoading} className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-xl shadow-primary-glow hover:opacity-90 disabled:opacity-50">Save Workspace</button>
-          </div>
-        </div>
-      )}
-    </div>
+    <SettingsCard footer={<FooterButtons dirty={dirty} saving={isSaving} onCancel={() => setPrefs(saved)} onSave={handleSave} />}>
+      <SettingsSection title="Notifications" description="Choose what NexusFlow tells you about.">
+        <ul className="space-y-5">
+          {PREF_ROWS.map((row) => (
+            <li key={row.key} className="flex items-center justify-between gap-4">
+              <label htmlFor={row.key} className="min-w-0 cursor-pointer">
+                <span className="block text-label text-foreground">{row.label}</span>
+                <span className="block text-small text-muted-foreground">{row.description}</span>
+              </label>
+              <Switch id={row.key} checked={prefs[row.key]} onCheckedChange={(value) => setPrefs({ ...prefs, [row.key]: value })} />
+            </li>
+          ))}
+        </ul>
+        <p className="mt-5 text-caption font-normal text-muted-foreground">
+          Emails aren't sent yet; these choices are saved for when delivery is switched on.
+        </p>
+      </SettingsSection>
+    </SettingsCard>
   );
 }
 
-function TeamTab({ companyId, companyRole }: { companyId: string | null; companyRole: string | null }) {
-  const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
-  const [members, setMembers] = useState<Array<{
-    id: string;
-    user_id: string;
-    role: string;
-    status: string;
-    created_at: string;
-    profile: { first_name?: string | null; last_name?: string | null; email?: string | null } | null;
-  }>>([]);
+/* ── Billing ── */
 
-  const isManager = companyRole === 'owner' || companyRole === 'admin';
-
-  const loadMembers = async () => {
-    if (!companyId) return;
-    setIsLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('company_members')
-        .select('id,user_id,role,status,created_at,user_profiles(first_name,last_name,email)')
-        .eq('company_id', companyId)
-        .eq('status', 'active');
-      if (error) throw error;
-      setMembers(
-        (data ?? []).map((m: any) => ({
-          id: m.id,
-          user_id: m.user_id,
-          role: m.role,
-          status: m.status,
-          created_at: m.created_at,
-          profile: Array.isArray(m.user_profiles) ? m.user_profiles[0] ?? null : m.user_profiles,
-        }))
-      );
-    } catch (err) {
-      console.error('Load team members failed:', err);
-      toast({ title: 'Error', description: 'Unable to load team members.', variant: 'destructive' });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadMembers();
-  }, [companyId]);
-
-  const handleRoleChange = async (memberId: string, newRole: string) => {
-    if (!isManager || !companyId) {
-      toast({ title: 'Not allowed', description: 'Only owner/admin can manage team.', variant: 'destructive' });
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const { error } = await supabase.from('company_members').update({ role: newRole }).eq('id', memberId);
-      if (error) throw error;
-      toast({ title: 'Team updated', description: 'Member role has been updated.' });
-      await loadMembers();
-    } catch (err) {
-      console.error('Update role failed:', err);
-      toast({ title: 'Error', description: 'Unable to update member role.', variant: 'destructive' });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const handleRemove = async (memberId: string, userId: string) => {
-    if (!isManager || !companyId) {
-      toast({ title: 'Not allowed', description: 'Only owner/admin can manage team.', variant: 'destructive' });
-      return;
-    }
-    setIsLoading(true);
-    try {
-      const { error } = await supabase.from('company_members').delete().eq('id', memberId);
-      if (error) throw error;
-      await supabase.from('user_profiles').update({ company_id: null }).eq('id', userId);
-      toast({ title: 'Member removed', description: 'The member has been removed from the workspace.' });
-      await loadMembers();
-    } catch (err) {
-      console.error('Remove member failed:', err);
-      toast({ title: 'Error', description: 'Unable to remove member.', variant: 'destructive' });
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <div className="p-6">
-      <div className="mb-6">
-        <h2 className="text-xl font-semibold text-foreground">Team Settings</h2>
-        <p className="text-sm text-muted-foreground mt-1">Manage team members and roles.</p>
-      </div>
-      {isLoading ? (
-        <div className="rounded-2xl border border-border p-8 text-center text-sm text-muted-foreground">Loading team members...</div>
-      ) : (
-        <div className="space-y-4">
-          {members.length === 0 ? (
-            <div className="rounded-2xl border border-border p-8 text-center text-sm text-muted-foreground">No active team members found.</div>
-          ) : (
-            <div className="space-y-4">
-              {members.map((member) => {
-                const name = member.profile?.first_name || member.profile?.email || 'Unknown';
-                const email = member.profile?.email || 'No email';
-                const isOwner = member.role === 'owner';
-                return (
-                  <div key={member.id} className="rounded-2xl border border-border p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                    <div>
-                      <p className="font-semibold text-foreground">{name}</p>
-                      <p className="text-sm text-muted-foreground">{email}</p>
-                      <p className="text-xs text-muted-foreground mt-1">Joined {new Date(member.created_at).toLocaleDateString()}</p>
-                    </div>
-                    <div className="flex items-center gap-3 flex-wrap">
-                      <select value={member.role} onChange={(e) => handleRoleChange(member.id, e.target.value)} disabled={!isManager || isOwner} className="rounded-xl border border-border bg-card text-foreground text-sm py-2.5 px-3">
-                        <option value="owner">Owner</option>
-                        <option value="admin">Admin</option>
-                        <option value="member">Member</option>
-                      </select>
-                      <button onClick={() => handleRemove(member.id, member.user_id)} disabled={!isManager || isOwner} className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-destructive border border-destructive/20 rounded-xl hover:bg-destructive/10 disabled:opacity-50 disabled:cursor-not-allowed">
-                        <Trash2 className="h-4 w-4" /> Remove
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
+interface Subscription {
+  plan: string;
+  status: string;
+  billing_cycle: string | null;
+  expires_at: string | null;
 }
 
 function BillingTab({ companyId }: { companyId: string | null }) {
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
-  const [subscription, setSubscription] = useState<{ plan: string; status: string; billing_cycle: string; expires_at: string } | null>(null);
+  const [subscription, setSubscription] = useState<Subscription | null | undefined>(undefined);
 
   useEffect(() => {
-    const loadSubscription = async () => {
-      if (!companyId) return;
-      setIsLoading(true);
-      try {
-        const { data, error } = await supabase.from('subscriptions').select('*').eq('company_id', companyId).single();
+    if (!companyId) return;
+    supabase
+      .from("subscriptions")
+      .select("plan, status, billing_cycle, expires_at")
+      .eq("company_id", companyId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle()
+      .then(({ data, error }) => {
         if (error) {
-          if (error.code === 'PGRST116' || error.details?.includes('result contains no rows')) {
-            setSubscription(null);
-            return;
-          }
-          throw error;
+          toast({ title: "Couldn't load billing", description: "Refresh the page and try again.", variant: "destructive" });
+          setSubscription(null);
+          return;
         }
         setSubscription(data);
-      } catch (err: any) {
-        if (err?.code === 'PGRST116' || err?.message?.includes('No rows')) {
-          setSubscription(null);
-        } else {
-          console.error('Load subscription failed:', err);
-          toast({ title: 'Error', description: 'Unable to load subscription details.', variant: 'destructive' });
-        }
-      } finally {
-        setIsLoading(false);
-      }
-    };
-    void loadSubscription();
+      });
   }, [companyId, toast]);
 
+  const plan = findPlan(subscription?.plan);
+  const cycle = subscription?.billing_cycle === "monthly" ? "monthly" : "yearly";
+  const price = plan?.price[cycle];
+  const isActive = subscription && isPlanActive(subscription.status, subscription.expires_at);
+  const isTrial = isTrialStatus(subscription?.status);
+  const trialEnded = isTrialExpired(subscription?.status, subscription?.expires_at);
+
   return (
-    <div className="p-6">
-      <h2 className="text-xl font-semibold text-foreground mb-6">Billing & Subscription</h2>
-      {isLoading ? (
-        <div className="rounded-2xl border border-border p-8 text-center text-sm text-muted-foreground">Loading subscription details...</div>
-      ) : subscription ? (
-        <div className="grid gap-4">
-          <div className="p-6 rounded-2xl border border-border bg-card">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-sm text-muted-foreground">Current Plan</p>
-                <p className="text-lg font-semibold text-foreground">{subscription.plan}</p>
+    <SettingsCard>
+      <SettingsSection title="Billing & Subscription" description="Your plan, billing cycle and renewal date.">
+        {subscription === undefined ? (
+          <Skeleton className="h-40 w-full rounded-xl" />
+        ) : subscription && isActive ? (
+          <div className="space-y-4 rounded-xl border border-primary bg-primary-soft/50 p-5">
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-primary text-primary-foreground">
+                <Zap className="h-5 w-5" strokeWidth={1.75} />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-h3 text-foreground">{plan?.name ?? subscription.plan}</p>
+                {plan && <p className="text-small text-muted-foreground">{plan.summary}</p>}
               </div>
-              <span className="text-xs font-semibold uppercase tracking-[0.2em] text-success">{subscription.status}</span>
+              <Badge variant="success" className="capitalize">
+                <span className="h-1.5 w-1.5 rounded-full bg-success" /> {isTrial ? "Trial" : subscription.status}
+              </Badge>
             </div>
-            <div className="mt-4 grid sm:grid-cols-2 gap-4 text-sm text-muted-foreground">
-              <div>
-                <p className="font-medium text-foreground">Billing Cycle</p>
-                <p>{subscription.billing_cycle}</p>
-              </div>
-              <div>
-                <p className="font-medium text-foreground">Expires At</p>
-                <p>{new Date(subscription.expires_at).toLocaleDateString()}</p>
-              </div>
+            <dl className="grid gap-2.5 sm:grid-cols-3">
+              {[
+                ["Current Plan", plan?.name ?? subscription.plan],
+                ["Billing Cycle", `${cycle === "yearly" ? "Yearly" : "Monthly"}${price ? ` · $${price}/month` : ""}`],
+                [isTrial ? "Trial ends" : "Renews / Expires", subscription.expires_at ? new Date(subscription.expires_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "No end date"],
+              ].map(([label, value]) => (
+                <div key={label} className="rounded-[10px] border border-border bg-card px-3.5 py-3">
+                  <dt className="text-caption font-normal text-muted-foreground">{label}</dt>
+                  <dd className="text-label text-foreground">{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-caption font-normal text-muted-foreground">
+                {isTrial ? "Subscribe before your trial ends to keep your workspace going." : "Invoices aren't available in the app yet."}
+              </p>
+              <Button asChild size="sm" variant={isTrial ? "default" : "secondary"}>
+                <Link to="/pricing">{isTrial ? "Choose a plan" : "Change plan"}</Link>
+              </Button>
             </div>
           </div>
-          <div className="flex flex-col sm:flex-row gap-3">
-            <button onClick={() => toast({ title: 'Upgrade', description: 'Upgrade service is not yet connected.' })} className="w-full px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-xl hover:opacity-90 transition">Upgrade Plan</button>
-            <button onClick={() => toast({ title: 'Manage', description: 'Manage subscription service is not yet connected.' })} className="w-full px-4 py-2 text-sm font-medium text-foreground bg-card border border-border rounded-xl hover:bg-muted transition">Manage Subscription</button>
+        ) : (
+          <div className="flex flex-wrap items-center gap-4 rounded-xl border border-dashed border-border-strong p-5">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-surface-2 text-muted-foreground">
+              <CreditCard className="h-5 w-5" strokeWidth={1.75} />
+            </span>
+            <div>
+              <p className="text-label text-foreground">{trialEnded ? "Your free trial has ended" : "No active subscription"}</p>
+              <p className="text-small text-muted-foreground">
+                {trialEnded ? "Choose a plan to keep using your workspace." : "This workspace doesn't currently have an active plan."}
+              </p>
+            </div>
+            <Button asChild size="sm" className="ml-auto shrink-0">
+              <Link to="/pricing">Choose a plan</Link>
+            </Button>
           </div>
-        </div>
-      ) : (
-        <div className="rounded-2xl border border-border p-8 text-center space-y-4">
-          <p className="text-sm font-medium text-foreground">No active subscription</p>
-          <p className="text-sm text-muted-foreground">Your company does not currently have an active subscription.</p>
-          <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <button onClick={() => toast({ title: 'Upgrade', description: 'Upgrade service is not yet connected.' })} className="px-4 py-2 text-sm font-medium text-primary-foreground bg-primary rounded-xl hover:opacity-90 transition">Upgrade Plan</button>
-            <button onClick={() => toast({ title: 'Manage', description: 'Manage Subscription service is not yet connected.' })} className="px-4 py-2 text-sm font-medium text-foreground bg-card border border-border rounded-xl hover:bg-muted transition">Manage Subscription</button>
-          </div>
-        </div>
-      )}
-    </div>
+        )}
+      </SettingsSection>
+    </SettingsCard>
   );
 }
+
+/* ── Integrations ── */
 
 function IntegrationsTab() {
-  const { toast } = useToast();
+  const apps = [
+    { name: "Slack", initial: "S", tone: "bg-[#4a154b] text-white", description: "Post task and calendar updates to a channel." },
+    { name: "GitHub", initial: "G", tone: "bg-[#0b1220] text-white dark:bg-white dark:text-[#0b1220]", description: "Link pull requests to Project Board tasks." },
+  ];
   return (
-    <div className="p-6 space-y-4">
-      <h2 className="text-xl font-semibold text-foreground mb-2">Connected Apps</h2>
-      {[{ name: "Slack", icon: Slack, con: true }, { name: "GitHub", icon: Github, con: false }].map(i => (
-        <div key={i.name} className="flex items-center justify-between p-4 border border-border rounded-xl">
-          <div className="flex items-center gap-4">
-            <div className="w-10 h-10 bg-muted rounded-lg flex items-center justify-center"><i.icon className="w-5 h-5" /></div>
-            <p className="font-medium text-sm">{i.name}</p>
-          </div>
-          <button onClick={() => toast({ title: "Toggle Integration", description: `${i.name} settings updated.` })} className={`px-4 py-1.5 text-xs font-medium rounded-lg ${i.con ? "border border-border text-muted-foreground" : "bg-primary text-white"}`}>{i.con ? "Disconnect" : "Connect"}</button>
-        </div>
-      ))}
-    </div>
+    <SettingsCard>
+      <SettingsSection title="Connected Apps" description="Bring updates from the tools you already use.">
+        <ul className="space-y-3">
+          {apps.map((app) => (
+            <li key={app.name} className="flex items-center gap-3.5 rounded-xl border border-border p-4">
+              <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] text-[15px] font-semibold", app.tone)} aria-hidden="true">
+                {app.initial}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="flex items-center gap-2 text-label text-foreground">
+                  {app.name} <Badge variant="neutral" size="sm">Coming soon</Badge>
+                </p>
+                <p className="text-small text-muted-foreground">{app.description}</p>
+              </div>
+              <Button variant="secondary" size="sm" disabled>Connect</Button>
+            </li>
+          ))}
+        </ul>
+      </SettingsSection>
+    </SettingsCard>
   );
 }
 
-/* ── MAIN SETTINGS PAGE ── */
-export default function SettingsPage() {
-  const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("General");
-  const { session } = useAuth();
+/* ── Workspace ── */
 
-  const { companyId, isCompanyLoading, companyError } = useCompany();
+interface WorkspaceValues {
+  name: string;
+  businessType: BusinessType;
+  currency: CurrencyCode;
+}
+
+function WorkspaceTab({ companyId, companyRole }: { companyId: string | null; companyRole: string | null }) {
+  const { toast } = useToast();
+  const [saved, setSaved] = useState<WorkspaceValues | null>(null);
+  const [draft, setDraft] = useState<WorkspaceValues | null>(null);
+  // False until the business_profile migration has added the columns.
+  const [hasProfileColumns, setHasProfileColumns] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const isOwner = companyRole === "owner";
+
+  useEffect(() => {
+    if (!companyId) return;
+    // select("*") so a database without the new columns still loads the name.
+    supabase.from("companies").select("*").eq("id", companyId).maybeSingle().then(({ data, error }) => {
+      if (error) {
+        toast({ title: "Couldn't load the workspace", description: "Refresh the page and try again.", variant: "destructive" });
+        return;
+      }
+      const values: WorkspaceValues = {
+        name: data?.name ?? "",
+        businessType: isBusinessType(data?.business_type) ? data.business_type : LEGACY_BUSINESS_TYPE,
+        currency: getCurrency(data?.currency).code,
+      };
+      setHasProfileColumns(data ? "business_type" in data && "currency" in data : true);
+      setSaved(values);
+      setDraft(values);
+    });
+  }, [companyId, toast]);
+
+  const typeChanged = Boolean(saved && draft && saved.businessType !== draft.businessType);
+  const currencyChanged = Boolean(saved && draft && saved.currency !== draft.currency);
+  const dirty = Boolean(saved && draft && draft.name.trim() !== "" && (draft.name.trim() !== saved.name || typeChanged || currencyChanged));
+
+  const handleSave = async () => {
+    if (!companyId || !isOwner || !saved || !draft) return;
+    setIsSaving(true);
+    const changes: Record<string, string> = {};
+    if (draft.name.trim() !== saved.name) changes.name = draft.name.trim();
+    if (typeChanged) changes.business_type = draft.businessType;
+    if (currencyChanged) changes.currency = draft.currency;
+    const { error } = await supabase.from("companies").update(changes).eq("id", companyId);
+    setIsSaving(false);
+    if (error) {
+      toast({ title: "Couldn't update the workspace", description: error.message, variant: "destructive" });
+      return;
+    }
+    const next = { ...draft, name: draft.name.trim() };
+    setSaved(next);
+    setDraft(next);
+    if (typeChanged || currencyChanged) announceBusinessProfileChanged(companyId);
+    toast({ title: "Workspace updated", description: "Everyone will see the changes after their next refresh." });
+    if (changes.name) {
+      await logActivity({ user: "You", action: "renamed the workspace to", target: changes.name, type: "success", iconName: "CheckCircle", iconBg: "bg-success/10 text-success" });
+    }
+    if (typeChanged || currencyChanged) {
+      await logActivity({
+        user: "You", action: "changed the workspace business type to", target: `${getBusinessConfig(next.businessType).label} · ${next.currency}`,
+        type: "success", iconName: "CheckCircle", iconBg: "bg-success/10 text-success",
+      });
+    }
+  };
+
+  const update = (patch: Partial<WorkspaceValues>) => setDraft((current) => (current ? { ...current, ...patch } : current));
+  const ownerHint = isOwner ? "Only you, as the owner, can change this." : "Only the workspace owner can change this.";
+
+  return (
+    <SettingsCard footer={isOwner && <FooterButtons dirty={dirty} saving={isSaving} onCancel={() => setDraft(saved)} onSave={handleSave} />}>
+      <SettingsSection title="Workspace" description="The name everyone in your company sees.">
+        {!draft ? (
+          <Skeleton className="h-10 w-full max-w-[420px]" />
+        ) : (
+          <div className="max-w-[420px] space-y-1.5">
+            <Label htmlFor="workspace-name">Workspace Name</Label>
+            <Input id="workspace-name" value={draft.name} onChange={(e) => update({ name: e.target.value })} disabled={!isOwner} aria-describedby="workspace-hint" />
+            <p id="workspace-hint" className="text-caption font-normal text-muted-foreground">{ownerHint}</p>
+          </div>
+        )}
+      </SettingsSection>
+
+      <SettingsSection title="Business type & currency" description="Decides what the Financial page asks for, which KPIs the Dashboard shows, and how amounts are written.">
+        {!draft ? (
+          <Skeleton className="h-56 w-full max-w-[520px]" />
+        ) : !hasProfileColumns ? (
+          <p className="max-w-[520px] rounded-[10px] border border-warning/20 bg-warning-soft px-4 py-3 text-small text-foreground">
+            Your database doesn't have business types yet. Run <code className="font-mono text-caption">2026-11-11_business_profile.sql</code> in Supabase to turn them on.
+          </p>
+        ) : (
+          <div className="max-w-[520px] space-y-4">
+            <div className="space-y-2">
+              <p id="business-type-label" className="text-label text-foreground">Business type</p>
+              <BusinessTypePicker value={draft.businessType} onChange={(businessType) => update({ businessType })} disabled={!isOwner} labelledBy="business-type-label" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="workspace-currency">Currency</Label>
+              <CurrencySelect id="workspace-currency" value={draft.currency} onChange={(currency) => update({ currency })} disabled={!isOwner} describedBy="currency-hint" />
+              <p id="currency-hint" className="text-caption font-normal text-muted-foreground">{ownerHint}</p>
+            </div>
+            {(typeChanged || currencyChanged) && (
+              <div role="status" className="flex gap-2.5 rounded-[10px] border border-warning/20 bg-warning-soft px-4 py-3 text-small text-foreground">
+                <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" strokeWidth={1.75} />
+                <div className="space-y-1">
+                  {typeChanged && (
+                    <p>The Financial form and KPIs will switch to {getBusinessConfig(draft.businessType).label}. Months you already saved keep their numbers, but fields the new type asks for will be empty until you fill them in.</p>
+                  )}
+                  {currencyChanged && <p>Amounts aren't converted. Numbers you already entered will be shown in {draft.currency} as they are.</p>}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </SettingsSection>
+    </SettingsCard>
+  );
+}
+
+/* ── Team ── */
+
+function TeamTab() {
+  return (
+    <SettingsCard>
+      <SettingsSection title="Team" description="Invite colleagues, change roles and remove members.">
+        <div className="flex flex-wrap items-center gap-4 rounded-xl border border-border p-5">
+          <span className="flex h-10 w-10 items-center justify-center rounded-[10px] bg-primary-soft text-primary">
+            <Users className="h-5 w-5" strokeWidth={1.75} />
+          </span>
+          <p className="min-w-0 flex-1 text-small text-muted-foreground">Members and invitations are managed on the Team page.</p>
+          <Button asChild variant="secondary">
+            <Link to="/team">Open Team <ArrowRight /></Link>
+          </Button>
+        </div>
+      </SettingsSection>
+    </SettingsCard>
+  );
+}
+
+/* ── Page ── */
+
+export default function SettingsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = TABS.some((tab) => tab.id === searchParams.get("tab")) ? searchParams.get("tab")! : "general";
+  const { session } = useAuth();
+  const { companyId } = useCompany();
   const [companyRole, setCompanyRole] = useState<string | null>(null);
 
   useEffect(() => {
-    const loadRole = async () => {
-      if (!companyId || !session?.user?.id) return;
-      try {
-        const { data, error } = await supabase.from('company_members').select('role').eq('company_id', companyId).eq('user_id', session.user.id).single();
-        if (error) throw error;
-        setCompanyRole(data.role ?? null);
-      } catch (err) {
-        console.error('Failed to load company role:', err);
-        toast({ title: 'Workspace role load failed', description: 'Unable to determine your company permission level.', variant: 'destructive' });
-        setCompanyRole(null);
-      }
-    };
-    void loadRole();
+    if (!companyId || !session?.user?.id) return;
+    supabase
+      .from("company_members")
+      .select("role")
+      .eq("company_id", companyId)
+      .eq("user_id", session.user.id)
+      .maybeSingle()
+      .then(({ data }) => setCompanyRole(data?.role ?? null));
   }, [companyId, session?.user?.id]);
 
-  const tabContent: Record<string, ReactNode> = {
-    General: <GeneralTab session={session} />,
-    Security: <SecurityTab />,
-    Notifications: <NotificationsTab session={session} />,
-    Billing: <BillingTab companyId={companyId} />,
-    Integrations: <IntegrationsTab />,
-    Workspace: <WorkspaceTab companyId={companyId} companyRole={companyRole} />,
-    Team: <TeamTab companyId={companyId} companyRole={companyRole} />,
+  const content: Record<string, ReactNode> = {
+    general: <GeneralTab />,
+    security: <SecurityTab />,
+    notifications: <NotificationsTab />,
+    billing: <BillingTab companyId={companyId} />,
+    integrations: <IntegrationsTab />,
+    workspace: <WorkspaceTab companyId={companyId} companyRole={companyRole} />,
+    team: <TeamTab />,
   };
 
   return (
-    <div className="p-6 lg:p-10 max-w-7xl mx-auto">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground tracking-tight">Settings</h1>
-        <p className="text-muted-foreground mt-2 text-sm sm:text-base">Manage your account settings and preferences.</p>
-        {companyError && (
-          <div className="mt-4 rounded-2xl border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-            Failed to load company context. Workspace and billing sections may be unavailable.
-          </div>
-        )}
-      </header>
+    <div className="space-y-6 px-4 pb-12 pt-6 sm:px-6 lg:px-8 lg:pt-7">
+      <PageHeader title="Settings" description="Manage your account settings and preferences." />
 
-      <div className="flex flex-col lg:flex-row gap-8 items-start">
-        <nav className="w-full lg:w-64 flex-shrink-0">
-          <div className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-2 lg:pb-0">
-            {tabs.map((tab) => (
-              <button
-                key={tab.label}
-                onClick={() => setActiveTab(tab.label)}
-                className={`group flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all whitespace-nowrap ${
-                  activeTab === tab.label ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                }`}
-              >
-                <tab.icon className="h-5 w-5" />
-                <span>{tab.label}</span>
-              </button>
-            ))}
-          </div>
+      <div className="grid items-start gap-6 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <nav aria-label="Settings sections" className="-mx-4 overflow-x-auto px-4 lg:mx-0 lg:overflow-visible lg:px-0">
+          <ul className="flex gap-1 lg:flex-col">
+            {TABS.map((tab) => {
+              const active = tab.id === activeTab;
+              return (
+                <li key={tab.id}>
+                  <button
+                    type="button"
+                    onClick={() => setSearchParams({ tab: tab.id }, { replace: true })}
+                    aria-current={active ? "page" : undefined}
+                    className={cn(
+                      "flex h-10 w-full items-center gap-3 whitespace-nowrap rounded-lg border px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      active ? "border-border bg-card font-semibold text-primary-text shadow-xs" : "border-transparent text-foreground hover:bg-surface-2"
+                    )}
+                  >
+                    <tab.icon className={cn("h-[18px] w-[18px]", active ? "text-primary" : "text-muted-foreground")} strokeWidth={1.75} />
+                    {tab.label}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
         </nav>
 
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.25 }}
-            className="flex-1 bg-card rounded-2xl shadow-card border border-border overflow-hidden w-full"
-          >
-            {tabContent[activeTab]}
-          </motion.div>
-        </AnimatePresence>
+        <div key={activeTab} className="min-w-0">{content[activeTab]}</div>
       </div>
     </div>
   );

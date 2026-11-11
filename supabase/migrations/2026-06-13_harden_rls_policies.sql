@@ -1,3 +1,7 @@
+-- SUPERSEDED by 2026-09-14_full_schema_setup.sql. Do not run this on a new project:
+-- its company_members policies query company_members directly and cause
+-- "infinite recursion detected in policy". If it was run, re-run 2026-09-14.
+
 -- Migration: Harden RLS policies for Settings-related tables
 -- Date: 2026-06-13
 

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 interface PendingInvite {
   id: string;
   company_id: string;
+  role?: string | null;
   companyName: string | null;
 }
 
@@ -71,7 +72,7 @@ export default function InvitationPopoverBody({ openKey, onClose, onResolved }: 
         const { data, error: fetchError } = await withSupabaseTimeout(
           supabase
             .from("invitations")
-            .select("id, company_id")
+            .select("*")
             .eq("email", user.email.toLowerCase().trim())
             .eq("status", "pending")
             .order("created_at", { ascending: false }),
@@ -120,14 +121,14 @@ export default function InvitationPopoverBody({ openKey, onClose, onResolved }: 
       const { error: memberError } = await supabase
         .from("company_members")
         .upsert(
-          [{ company_id: invite.company_id, user_id: user.id, role: "member", status: "active" }],
+          [{ company_id: invite.company_id, user_id: user.id, role: invite.role || "member", status: "active" }],
           { onConflict: "user_id,company_id" }
         );
       if (memberError) throw memberError;
 
       const { error: profileError } = await supabase
         .from("user_profiles")
-        .update({ company_id: invite.company_id, role: "member" })
+        .update({ company_id: invite.company_id, role: invite.role || "member" })
         .eq("id", user.id);
       if (profileError) throw profileError;
 

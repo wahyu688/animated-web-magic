@@ -105,7 +105,7 @@ export default function AppTopbar({ profile, firstName, unreadCount, onOpenSearc
             type="button"
             className="hidden h-[38px] items-center gap-2 rounded-full border border-border py-[3px] pl-[3px] pr-2 transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring lg:flex"
           >
-            <UserAvatar initials={profile.initials} size={30} />
+            <UserAvatar initials={profile.initials} imageUrl={profile.avatarUrl} size={30} />
             <span className="max-w-[120px] truncate text-label text-foreground">{firstName}</span>
             <ChevronDown className="h-4 w-4 text-subtle" strokeWidth={1.75} />
           </button>

@@ -1,23 +1,48 @@
 import { useEffect, useRef, useState } from "react";
+import { supabase } from "@/lib/supabase";
 import { reconnectRealtimeSafely } from "@/lib/supabaseLifecycle";
 
+/** Shorter trips away (a quick alt-tab) don't refetch anything. */
+const REFETCH_AFTER_AWAY_MS = 60_000;
+/** After this long the socket may be stale even if it reports connected. */
+const RECONNECT_AFTER_AWAY_MS = 5 * 60_000;
+
+// When the user last left the tab/window, and the latest return, shared by every hook instance.
+let leftAt: number | null = null;
+let lastReturn: { at: number; awayMs: number } | null = null;
 let globalRecoveryPromise: Promise<void> | null = null;
-let lastGlobalRecoveryAt = 0;
+
+if (typeof window !== "undefined") {
+  const markLeft = () => {
+    leftAt ??= Date.now();
+  };
+  window.addEventListener("blur", markLeft);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") markLeft();
+  });
+}
+
+function realtimeIsConnected() {
+  try {
+    return supabase.realtime.isConnected();
+  } catch {
+    return false;
+  }
+}
 
 interface UseSupabaseResumeRecoveryOptions {
   enabled?: boolean;
-  minIntervalMs?: number;
   onRecover?: () => void | Promise<void>;
 }
 
-export function useSupabaseResumeRecovery({
-  enabled = true,
-  minIntervalMs = 2500,
-  onRecover,
-}: UseSupabaseResumeRecoveryOptions = {}) {
-  const [isRecovering, setIsRecovering] = useState(false);
-  const lastCallbackRef = useRef(0);
+/**
+ * Quietly refreshes data when the user comes back after being away for a while.
+ * Returns true only while a dropped realtime connection is being re-established.
+ */
+export function useSupabaseResumeRecovery({ enabled = true, onRecover }: UseSupabaseResumeRecoveryOptions = {}) {
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const onRecoverRef = useRef(onRecover);
+  const handledReturnRef = useRef<number | null>(null);
 
   useEffect(() => {
     onRecoverRef.current = onRecover;
@@ -26,36 +51,33 @@ export function useSupabaseResumeRecovery({
   useEffect(() => {
     if (!enabled) return;
 
-    const recoverSupabaseCore = () => {
-      const now = Date.now();
-      if (globalRecoveryPromise) return globalRecoveryPromise;
-      if (now - lastGlobalRecoveryAt < minIntervalMs) return Promise.resolve();
-
-      lastGlobalRecoveryAt = now;
-      globalRecoveryPromise = (async () => {
-        reconnectRealtimeSafely();
-      })().finally(() => {
-        globalRecoveryPromise = null;
-      });
-
-      return globalRecoveryPromise;
-    };
-
     const recover = async () => {
       if (document.visibilityState === "hidden") return;
+      // focus and visibilitychange both fire on return; record the trip once for all instances.
+      if (leftAt !== null) {
+        lastReturn = { at: Date.now(), awayMs: Date.now() - leftAt };
+        leftAt = null;
+      }
+      const isNewReturn = lastReturn !== null && handledReturnRef.current !== lastReturn.at;
+      if (isNewReturn) handledReturnRef.current = lastReturn!.at;
+      const awayMs = isNewReturn ? lastReturn!.awayMs : 0;
 
-      const now = Date.now();
-      if (now - lastCallbackRef.current < minIntervalMs) return;
-      lastCallbackRef.current = now;
+      const needsReconnect = !realtimeIsConnected() || awayMs >= RECONNECT_AFTER_AWAY_MS;
+      if (!needsReconnect && awayMs < REFETCH_AFTER_AWAY_MS) return;
 
       try {
-        setIsRecovering(true);
-        await recoverSupabaseCore();
+        if (needsReconnect) {
+          setIsReconnecting(true);
+          globalRecoveryPromise ??= Promise.resolve(reconnectRealtimeSafely()).finally(() => {
+            globalRecoveryPromise = null;
+          });
+          await globalRecoveryPromise;
+        }
         await onRecoverRef.current?.();
       } catch (error) {
         console.warn("[supabase lifecycle] tab resume recovery failed:", error);
       } finally {
-        setIsRecovering(false);
+        setIsReconnecting(false);
       }
     };
 
@@ -70,7 +92,7 @@ export function useSupabaseResumeRecovery({
       window.removeEventListener("focus", recover);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [enabled, minIntervalMs]);
+  }, [enabled]);
 
-  return isRecovering;
+  return isReconnecting;
 }

@@ -271,7 +271,7 @@ export default function PublicNavbar() {
 
       {/* Mobile: the navbar pill is hidden, so invitations open in a dialog instead of the popover. */}
       <Dialog open={inviteDialogOpen} onOpenChange={setInviteDialogOpen}>
-        <DialogContent className="max-w-[400px] p-4">
+        <DialogContent className="max-w-[400px] p-4" aria-describedby={undefined}>
           <DialogTitle className="sr-only">Workspace invitations</DialogTitle>
           <InvitationPopoverBody
             openKey={inviteOpenKey}
